@@ -5,6 +5,7 @@
 // смотрит примерку и решает), пороги высокие, а без совпавшего имени — только фреймы с собственным оформлением
 // (правило 32: чистая обёртка без заливки, обводки и эффектов — это раскладка, а не компонент).
 
+import { matchComposite } from './composite';
 import { normalizeName, sizeDistance, SIZE_TOLERANCE, type Candidate, type MatchResult } from './match';
 import type { Origin, ReportGroup, ScreenRef } from './scan-report';
 import { structureScore, type Shape } from './structure';
@@ -45,7 +46,7 @@ const best = (f: ManualFinding, c: Candidate) => Math.max(-1, ...fitting(c, f).m
  * - `named` — наш компонент с тем же именем, подходящий по размеру, устройство похоже ≥ NAMED_MIN;
  * - `similar` — имени нет, но у фрейма своё оформление и устройство похоже на один наш компонент ≥ SIMILAR_MIN
  *   с отрывом от следующего ≥ SIMILAR_MARGIN; иконки не предлагаются (это этап 3);
- * - иначе `none`.
+ * - иначе `composite` — наш составной компонент с теми же вложенными компонентами (этап 2в, composite.ts), или `none`.
  */
 export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candidate[]>, product?: string): MatchResult {
   const inProduct = (c: Candidate) => !product || c.product === product;
@@ -57,7 +58,7 @@ export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candid
     .sort((a, b) => b.s - a.s);
   if (named.length) return { status: 'named', target: named[0].c, alternatives: named.map((x) => x.c), score: named[0].s };
 
-  if (!f.visual || f.shape.textCount + f.shape.iconCount + f.shape.parts.length < SIMILAR_MIN_ELEMENTS) return { status: 'none', alternatives: [] };
+  if (!f.visual || f.shape.textCount + f.shape.iconCount + f.shape.parts.length < SIMILAR_MIN_ELEMENTS) return matchComposite(f, byName, product);
   const all: { c: Candidate; s: number }[] = [];
   for (const list of byName.values()) {
     for (const c of list) {
@@ -71,17 +72,21 @@ export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candid
   if (first && first.s >= SIMILAR_MIN && (!second || first.s - second.s >= SIMILAR_MARGIN)) {
     return { status: 'similar', target: first.c, alternatives: all.filter((x) => x.s >= SIMILAR_MIN - SIMILAR_MARGIN).map((x) => x.c), score: first.s };
   }
-  return { status: 'none', alternatives: [] };
+  return matchComposite(f, byName, product);
 }
 
 /**
- * Группы ручных фреймов для отчёта: одно имя и примерно один размер (шаг 8 px) — одна группа. Группировка не
- * зависит от подбора, поэтому смена продукта не перестраивает отчёт.
+ * Группы ручных фреймов для отчёта: одно имя, примерно один размер (шаг 8 px) и одно устройство — одна группа.
+ * Пара подбирается по первому фрейму группы, поэтому разное устройство — разные группы: на «✈️ Port queue» три
+ * `balance panel/1. three items` одного размера, а иконки видны не у всех — один подходил к `bar/button`, другой нет.
+ * Группировка не зависит от подбора, поэтому смена продукта не перестраивает отчёт.
  */
 export function groupManual(findings: readonly ManualFinding[]): ReportGroup[] {
   const groups = new Map<string, ReportGroup & { screenIds: Set<string> }>();
   for (const f of findings) {
-    const id = `m:${normalizeName(f.name)}|${Math.round(f.width / 8)}x${Math.round(f.height / 8)}`;
+    const { textCount, iconCount, layoutMode, parts } = f.shape;
+    const structure = `t${textCount}i${iconCount}${layoutMode[0]}:${parts.map(normalizeName).sort().join(',')}`;
+    const id = `m:${normalizeName(f.name)}|${Math.round(f.width / 8)}x${Math.round(f.height / 8)}|${structure}`;
     let g = groups.get(id);
     if (!g) {
       const origin: Origin = 'local';
