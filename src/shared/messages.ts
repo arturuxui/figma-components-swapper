@@ -1,5 +1,6 @@
 // Сообщения между кодом плагина (sandbox) и UI (iframe).
 
+import type { ApplyResult } from '../figma/apply';
 import type { IndexSummary, LibraryKind } from '../core/library-index';
 import type { Candidate, MatchResult } from '../core/match';
 import type { ScanReport } from '../core/scan-report';
@@ -38,6 +39,8 @@ export type ToUi =
       lost: string[];
       sizeChanged: boolean;
     }
+  | { type: 'applied'; result: ApplyResult }
+  | { type: 'undone'; restored: number; failed: number }
   | { type: 'error'; message: string };
 
 export type ToPlugin =
@@ -45,5 +48,7 @@ export type ToPlugin =
   | { type: 'scan' }
   | { type: 'set-product'; product: string }
   | { type: 'preview'; groupId: string; target: TargetRef }
+  | { type: 'apply'; choices: { groupId: string; target: TargetRef }[] }
+  | { type: 'undo' }
   | { type: 'focus'; nodeId: string }
   | { type: 'open-library'; url: string };

@@ -1,9 +1,10 @@
 // Код плагина в песочнице Figma: определяет, открыт ли файл библиотеки, и выполняет команды UI.
 
 import libraries from '../config/libraries.json';
-import { buildLookup, summarizeIndex, type LibraryIndex, type LibraryKind } from './core/library-index';
+import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
 import { buildCandidates, guessProduct, matchByName, type Candidate } from './core/match';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
+import { applySwaps, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
 import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
@@ -27,13 +28,14 @@ void (async () => {
 })();
 
 /** Последний скан: по нему подбираются пары, делается примерка и (этап 1в) замена. */
-let last: { report: ScanReport; byName: Map<string, Candidate[]>; products: string[] } | null = null;
+let last: { report: ScanReport; byName: Map<string, Candidate[]>; lookup: Map<string, KeyHit>; products: string[]; product: string | null } | null = null;
 
 /** Группы, которые надо менять: чужие и локальные экземпляры (отвязанные фреймы — этап 2). */
 const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && g.origin !== 'ours');
 
 function sendMatches(product: string | null) {
   if (!last) return;
+  last.product = product;
   const matches: Matches = {};
   for (const g of toReplace(last.report)) matches[g.id] = matchByName(g.name, g, last.byName, product ?? undefined);
   post({ type: 'matched', product, products: last.products, matches });
@@ -60,7 +62,7 @@ async function scan() {
   const found = await scanNodes(roots, lookup, progress);
   const report = buildReport(found.instances, found.detached, lookup);
   const byName = buildCandidates(indexes);
-  last = { report, byName, products: [...new Set(indexes.map((i) => i.product))].sort() };
+  last = { report, byName, lookup, products: [...new Set(indexes.map((i) => i.product))].sort(), product: null };
   post({
     type: 'scanned',
     report,
@@ -76,6 +78,20 @@ async function preview(groupId: string, target: { key: string; isSet: boolean })
   if (!group) throw new Error('Группа не найдена — пересканируйте макет.');
   const result = await previewSwap(group.exampleNodeId, target);
   post({ type: 'preview', groupId, targetKey: target.key, ...result });
+}
+
+async function apply(choices: { groupId: string; target: { key: string; isSet: boolean } }[]) {
+  if (!last) throw new Error('Сначала просканируйте макет.');
+  const groups = toReplace(last.report);
+  const selected = choices.flatMap(({ groupId, target }) => {
+    const g = groups.find((x) => x.id === groupId);
+    return g ? [{ name: g.name, nodeIds: g.nodeIds, target }] : [];
+  });
+  if (!selected.length) throw new Error('Не выбрано ни одной замены.');
+  const result = await applySwaps(selected, { lookup: last.lookup, byName: last.byName, product: last.product ?? undefined, progress });
+  // Скан устарел: заменённые места больше не чужие.
+  last = null;
+  post({ type: 'applied', result });
 }
 
 async function focus(nodeId: string) {
@@ -94,6 +110,8 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'scan') await scan();
     else if (msg.type === 'set-product') sendMatches(msg.product);
     else if (msg.type === 'preview') await preview(msg.groupId, msg.target);
+    else if (msg.type === 'apply') await apply(msg.choices);
+    else if (msg.type === 'undo') post({ type: 'undone', ...undoSwaps(progress) });
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'open-library') figma.openExternal(msg.url);
   } catch (e) {
