@@ -3,6 +3,7 @@
 
 import type { KeyHit } from '../core/library-index';
 import { classifyInstance, type DetachedFinding, type InstanceFinding, type ScreenRef } from '../core/scan-report';
+import { REPLACED_MARK } from './replace-frame';
 
 export interface ScanResult {
   instances: InstanceFinding[];
@@ -23,6 +24,14 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
 
   const visit = async (node: SceneNode, screen: ScreenRef): Promise<void> => {
     if (++seen % 500 === 0) progress(`Просмотрено слоёв: ${seen}`);
+    // Фрейм, уже заменённый экземпляром и ждущий удаления (см. replace-frame.ts), — не находка.
+    if (node.type === 'FRAME' && !node.visible) {
+      try {
+        if (node.getPluginData(REPLACED_MARK)) return;
+      } catch {
+        // нет pluginData — обычный скрытый фрейм
+      }
+    }
 
     if (node.type === 'INSTANCE') {
       let main: ComponentNode | null = null;
@@ -49,7 +58,8 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
       };
       result.instances.push(finding);
       if (classifyInstance(finding, lookup) !== 'ours') return;
-    } else if (node.type === 'FRAME' && node.detachedInfo) {
+    } else if (node.type === 'FRAME' && node.detachedInfo && node.visible) {
+      // Скрытый отвязанный фрейм в макете не виден — менять его незачем.
       const info = node.detachedInfo;
       result.detached.push({
         nodeId: node.id,

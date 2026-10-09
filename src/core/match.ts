@@ -44,6 +44,20 @@ export interface Candidate {
   kind: LibraryKind;
   /** Размеры вариантов набора (у одиночного — один). */
   sizes: Size[];
+  /** Варианты набора — чтобы дизайнер мог выбрать вариант сам (у отвязанных фреймов). */
+  variants?: { key: string; name: string }[];
+}
+
+/**
+ * Что заменять по выбранному ключу: ключ кандидата (набор целиком — вариант подберёт плагин) или ключ одного
+ * из его вариантов (выбран дизайнером). Нет такого ключа — null.
+ */
+export function resolveChoice(alternatives: readonly Candidate[], key: string): { owner: Candidate; target: { key: string; isSet: boolean } } | null {
+  for (const c of alternatives) {
+    if (c.key === key) return { owner: c, target: { key: c.key, isSet: c.isSet } };
+    if (c.variants?.some((v) => v.key === key)) return { owner: c, target: { key, isSet: false } };
+  }
+  return null;
 }
 
 /** Имя → кандидаты из всех индексов. */
@@ -59,14 +73,18 @@ export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, C
   for (const index of indexes) {
     const base = { libraryId: index.libraryId, product: index.product, kind: index.kind };
     const setSizes = new Map<string, Size[]>();
+    const setVariants = new Map<string, { key: string; name: string }[]>();
     for (const e of index.entries) {
       if (e.setKey) {
         const list = setSizes.get(e.setKey) ?? [];
         list.push({ width: e.width, height: e.height });
         setSizes.set(e.setKey, list);
+        const variants = setVariants.get(e.setKey) ?? [];
+        variants.push({ key: e.key, name: e.name });
+        setVariants.set(e.setKey, variants);
       } else push({ ...base, key: e.key, isSet: false, name: e.name, sizes: [{ width: e.width, height: e.height }] });
     }
-    for (const set of index.sets) push({ ...base, key: set.key, isSet: true, name: set.name, sizes: setSizes.get(set.key) ?? [] });
+    for (const set of index.sets) push({ ...base, key: set.key, isSet: true, name: set.name, sizes: setSizes.get(set.key) ?? [], variants: setVariants.get(set.key) ?? [] });
   }
   return byName;
 }

@@ -38,6 +38,9 @@ export type ToUi =
       pick: VariantPick | null;
       lost: string[];
       sizeChanged: boolean;
+      placeholders?: string[];
+      iconsMissing?: string[];
+      score?: number;
     }
   | { type: 'applied'; result: ApplyResult }
   | { type: 'undone'; restored: number; failed: number }

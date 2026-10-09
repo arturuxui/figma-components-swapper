@@ -62,13 +62,13 @@ describe('buildReport', () => {
       'foreign:i:old-set',
       'foreign:i:icon-star',
       'local:i:mine',
-      'local:d:9:9',
+      'local:d:d:9:9',
       'ours:i:set-btn',
-      'ours:d:divider',
+      'ours:d:d:divider',
     ]);
   });
 
   it('отвязанный от нашего — имя из индекса', () => {
-    expect(report.groups.find((g) => g.detached && g.id === 'divider')).toMatchObject({ origin: 'ours', name: 'divider', libraryId: 'driver-components' });
+    expect(report.groups.find((g) => g.detached && g.id === 'd:divider')).toMatchObject({ origin: 'ours', name: 'divider', libraryId: 'driver-components', detachedKey: 'divider' });
   });
 });

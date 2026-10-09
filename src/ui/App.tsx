@@ -1,7 +1,8 @@
 // Окно плагина. В файле библиотеки — сбор индекса, в макете — скан, подбор по имени и примерка (этап 1а–1б).
 
-import { useEffect, useState } from 'preact/hooks';
+import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IndexSummary } from '../core/library-index';
+import { resolveChoice } from '../core/match';
 import type { ApplyResult } from '../figma/apply';
 import type { LibraryInfo, Matches, TargetRef, ToPlugin, ToUi } from '../shared/messages';
 import { Applied } from './Applied';
@@ -13,9 +14,15 @@ type Matched = Extract<ToUi, { type: 'matched' }>;
 const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
 /** Решение по умолчанию: уверенные пары — заменить, остальное — ждёт дизайнера. */
-function defaultDecisions(matches: Matches): Decisions {
+function defaultDecisions(matches: Matches, report: Scanned['report'] | undefined): Decisions {
   const out: Decisions = {};
-  for (const [id, m] of Object.entries(matches)) out[id] = (m.status === 'exact' || m.status === 'stretched') && m.target ? m.target.key : '';
+  const groups = new Map((report?.groups ?? []).map((g) => [g.id, g]));
+  for (const [id, m] of Object.entries(matches)) {
+    const g = groups.get(id);
+    // Отвязанный фрейм заменяется целиком — сразу выбран только отвязанный от нашего; остальное — после примерки.
+    const sure = g?.detached ? g.origin === 'ours' : m.status === 'exact' || m.status === 'stretched';
+    out[id] = sure && m.target ? m.target.key : '';
+  }
   return out;
 }
 
@@ -30,6 +37,8 @@ export function App() {
   const [matched, setMatched] = useState<Matched | null>(null);
   const [decisions, setDecisions] = useState<Decisions>({});
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
+  // Скан приходит раньше подбора, а обработчик сообщений создаётся один раз — нужен ref, а не состояние.
+  const scannedRef = useRef<Scanned | null>(null);
   const [applied, setApplied] = useState<ApplyResult | null>(null);
   const [undone, setUndone] = useState<{ restored: number; failed: number } | null>(null);
 
@@ -47,19 +56,30 @@ export function App() {
         setIndexes((all) => [...all.filter((i) => i.libraryId !== msg.summary.libraryId), msg.summary]);
         setBusy(null);
       } else if (msg.type === 'scanned') {
+        scannedRef.current = msg;
         setScanned(msg);
         setPreviews({});
         setApplied(null);
         setUndone(null);
       } else if (msg.type === 'matched') {
         setMatched(msg);
-        setDecisions(defaultDecisions(msg.matches));
+        setDecisions(defaultDecisions(msg.matches, scannedRef.current?.report));
         setBusy(null);
       } else if (msg.type === 'preview') {
         const url = (bytes: Uint8Array) => URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
         setPreviews((all) => ({
           ...all,
-          [msg.groupId]: { targetKey: msg.targetKey, before: url(msg.before), after: url(msg.after), pick: msg.pick, lost: msg.lost, sizeChanged: msg.sizeChanged },
+          [msg.groupId]: {
+            targetKey: msg.targetKey,
+            before: url(msg.before),
+            after: url(msg.after),
+            pick: msg.pick,
+            lost: msg.lost,
+            sizeChanged: msg.sizeChanged,
+            placeholders: msg.placeholders,
+            iconsMissing: msg.iconsMissing,
+            score: msg.score,
+          },
         }));
         setBusy(null);
       } else if (msg.type === 'applied') {
@@ -90,9 +110,9 @@ export function App() {
   let places = 0;
   if (scanned && matched) {
     for (const g of scanned.report.groups) {
-      const c = decisions[g.id] && matched.matches[g.id]?.alternatives.find((x) => x.key === decisions[g.id]);
-      if (!c || g.detached || g.origin === 'ours') continue;
-      choices.push({ groupId: g.id, target: { key: c.key, isSet: c.isSet } });
+      const choice = decisions[g.id] ? resolveChoice(matched.matches[g.id]?.alternatives ?? [], decisions[g.id]) : null;
+      if (!choice || (!g.detached && g.origin === 'ours')) continue;
+      choices.push({ groupId: g.id, target: choice.target });
       places += g.count;
     }
   }

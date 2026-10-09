@@ -18,7 +18,7 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
   return (
     <>
       <div class="totals">
-        <Total n={r.replaced} label="заменено" />
+        <Total n={r.replaced} label={r.frames ? `заменено (фреймов ${r.frames})` : 'заменено'} />
         <Total n={r.nested} label="вложенных" />
         <Total n={r.skipped} label="пропущено" />
       </div>
@@ -27,6 +27,7 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
         {r.axesMissing ? ` У ${r.axesMissing} мест не все оси варианта нашлись у нашего набора — по ним вариант по умолчанию.` : ''}
       </p>
       <Issues title="Пропали тексты — проверьте" items={r.lostTexts} />
+      <Issues title="Фреймы: осталось от компонента — проверьте" items={r.leftovers} />
       <Issues title="Ошибки" items={r.errors} />
       {!r.lostTexts.length && !r.errors.length && <p>Тексты сохранились везде. Пересканируйте, чтобы увидеть, что осталось.</p>}
     </>

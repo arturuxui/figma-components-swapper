@@ -1,6 +1,6 @@
 // Отчёт скана с подбором по имени: что заменить, на что, примерка «Было / Будет».
 
-import type { Candidate, MatchStatus } from '../core/match';
+import { resolveChoice, type Candidate, type MatchStatus } from '../core/match';
 import type { Origin, ReportGroup } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
 import type { Matches, TargetRef, ToUi } from '../shared/messages';
@@ -16,6 +16,9 @@ export interface Preview {
   pick: VariantPick | null;
   lost: string[];
   sizeChanged: boolean;
+  placeholders?: string[];
+  iconsMissing?: string[];
+  score?: number;
 }
 
 type Matched = Extract<ToUi, { type: 'matched' }>;
@@ -47,11 +50,11 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   const { report, scopeName, unreadable } = scanned;
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && g.origin !== 'ours');
-  const detachedOurs = report.groups.filter((g) => g.origin === 'ours' && g.detached);
+  const detached = report.groups.filter((g) => g.detached);
   const matches: Matches = matched?.matches ?? {};
-  const chosen = toReplace.filter((g) => decisions[g.id]);
+  const chosen = [...toReplace, ...detached].filter((g) => decisions[g.id]);
   const places = chosen.reduce((n, g) => n + g.count, 0);
-  const allPlaces = toReplace.reduce((n, g) => n + g.count, 0);
+  const allPlaces = [...toReplace, ...detached].reduce((n, g) => n + g.count, 0);
 
   return (
     <>
@@ -84,6 +87,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
           <h2>
             Заменить · выбрано {places} из {allPlaces} мест
           </h2>
+          <p class="muted">Экземпляры чужих и локальных компонентов</p>
           <ul class="rows">
             {toReplace.map((g) => (
               <Row
@@ -101,24 +105,30 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
           <p class="muted">«Заменить» меняет только строки с выбранным компонентом; примерка делается на временной копии и макет не меняет.</p>
         </section>
       )}
-      {detachedOurs.length > 0 && (
+      {detached.length > 0 && (
         <section>
-          <h2>Отвязаны от наших — вернуть экземпляр (этап 2)</h2>
+          <h2>Отвязанные фреймы → экземпляры наших компонентов</h2>
+          <p class="muted">
+            Вариант выбирается по устройству фрейма, тексты и иконки переносятся. Кроме отвязанных от наших, ничего не выбрано сразу —
+            посмотрите примерку.
+          </p>
           <ul class="rows">
-            {detachedOurs.map((g) => (
-              <li key={g.id}>
-                <span class="tag ours">Отвязан</span>
-                <span class="name">{g.name}</span>
-                <span class="muted">×{g.count}</span>
-                <button class="link" onClick={() => send({ type: 'focus', nodeId: g.exampleNodeId })}>
-                  Показать
-                </button>
-              </li>
+            {detached.map((g) => (
+              <Row
+                key={g.id}
+                group={g}
+                match={matches[g.id]}
+                value={decisions[g.id] ?? ''}
+                preview={previews[g.id]}
+                busy={busy}
+                onDecide={(key) => onDecide(g.id, key)}
+                onPreview={(target) => onPreview(g.id, target)}
+              />
             ))}
           </ul>
         </section>
       )}
-      {!toReplace.length && !detachedOurs.length && <p>Всё из библиотек WB AID.</p>}
+      {!toReplace.length && !detached.length && <p>Всё из библиотек WB AID.</p>}
     </>
   );
 }
@@ -142,12 +152,16 @@ interface RowProps {
 
 function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: RowProps) {
   const status = match ? STATUS[match.status] : null;
-  const target = match?.alternatives.find((c) => c.key === value);
-  const shown = preview && preview.targetKey === value ? preview : null;
+  const choice = match && value ? resolveChoice(match.alternatives, value) : null;
+  const owner = choice?.owner;
+  const shown = preview && choice && preview.targetKey === choice.target.key ? preview : null;
+  // Отвязанный фрейм: вариант набора дизайнер может выбрать сам — смысл варианта (цвет, «повышена/понижена»)
+  // по устройству фрейма не виден.
+  const variants = g.detached && owner?.isSet && owner.variants && owner.variants.length > 1 ? owner.variants : null;
   return (
     <li class="group">
       <div class="line">
-        <span class={`tag ${g.origin}`}>{ORIGIN_LABEL[g.origin]}</span>
+        <span class={`tag ${g.origin}`}>{g.detached ? `Отвязан${g.origin === 'ours' ? ' от нашего' : ''}` : ORIGIN_LABEL[g.origin]}</span>
         <span class="name" title={g.name}>
           {g.name}
         </span>
@@ -164,7 +178,7 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: Row
             {status.label}
           </span>
           {match.alternatives.length ? (
-            <select class="grow" value={value} disabled={busy} onChange={(e) => onDecide((e.target as HTMLSelectElement).value)}>
+            <select class="grow" value={owner?.key ?? ''} disabled={busy} onChange={(e) => onDecide((e.target as HTMLSelectElement).value)}>
               <option value="">— не заменять —</option>
               {match.alternatives.map((c) => (
                 <option key={c.key} value={c.key}>
@@ -175,11 +189,24 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: Row
           ) : (
             <span class="muted grow">{status.hint}</span>
           )}
-          {target && (
-            <button class="link" disabled={busy} onClick={() => onPreview({ key: target.key, isSet: target.isSet })}>
+          {choice && (
+            <button class="link" disabled={busy} onClick={() => onPreview(choice.target)}>
               Примерка
             </button>
           )}
+        </div>
+      )}
+      {variants && owner && (
+        <div class="line">
+          <span class="muted">Вариант</span>
+          <select class="grow" value={value === owner.key ? '' : value} disabled={busy} onChange={(e) => onDecide((e.target as HTMLSelectElement).value || owner.key)}>
+            <option value="">авто — по устройству фрейма</option>
+            {variants.map((v) => (
+              <option key={v.key} value={v.key}>
+                {v.name}
+              </option>
+            ))}
+          </select>
         </div>
       )}
       {shown && (
@@ -204,5 +231,8 @@ function PreviewNotes({ preview: p }: { preview: Preview }) {
   if (p.lost.length) notes.push(`Пропадут тексты: ${p.lost.map((s) => `«${s}»`).join(', ')}`);
   if (p.pick?.unmatched.length) notes.push(`Не нашлось в наших вариантах: ${p.pick.unmatched.join(', ')} — будет вариант по умолчанию по этим осям`);
   if (p.sizeChanged) notes.push('Размер изменится');
+  if (p.placeholders?.length) notes.push(`Останутся тексты компонента: ${p.placeholders.map((s) => `«${s}»`).join(', ')}`);
+  if (p.iconsMissing?.length) notes.push(`Иконок нет у нас: ${p.iconsMissing.join(', ')} — останутся иконки компонента`);
+  if (p.score !== undefined && p.score < 0.8) notes.push(`Устройство похоже на ${Math.round(p.score * 100)} % — проверьте`);
   return <p class={notes.length ? 'error notes' : 'muted notes'}>{notes.length ? notes.join(' · ') : 'Тексты и размер сохраняются'}</p>;
 }
