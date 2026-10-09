@@ -97,7 +97,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
               />
             ))}
           </ul>
-          <p class="muted">Применение — следующий шаг (этап 1в). Сейчас макет не меняется: примерка делается на временной копии.</p>
+          <p class="muted">«Заменить» меняет только строки с выбранным компонентом; примерка делается на временной копии и макет не меняет.</p>
         </section>
       )}
       {detachedOurs.length > 0 && (

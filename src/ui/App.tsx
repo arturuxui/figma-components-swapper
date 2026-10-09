@@ -2,7 +2,9 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import type { IndexSummary } from '../core/library-index';
-import type { LibraryInfo, Matches, ToPlugin, ToUi } from '../shared/messages';
+import type { ApplyResult } from '../figma/apply';
+import type { LibraryInfo, Matches, TargetRef, ToPlugin, ToUi } from '../shared/messages';
+import { Applied } from './Applied';
 import { send, type Scanned } from './bridge';
 import { Report, type Decisions, type Preview } from './Report';
 
@@ -28,6 +30,8 @@ export function App() {
   const [matched, setMatched] = useState<Matched | null>(null);
   const [decisions, setDecisions] = useState<Decisions>({});
   const [previews, setPreviews] = useState<Record<string, Preview>>({});
+  const [applied, setApplied] = useState<ApplyResult | null>(null);
+  const [undone, setUndone] = useState<{ restored: number; failed: number } | null>(null);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -45,6 +49,8 @@ export function App() {
       } else if (msg.type === 'scanned') {
         setScanned(msg);
         setPreviews({});
+        setApplied(null);
+        setUndone(null);
       } else if (msg.type === 'matched') {
         setMatched(msg);
         setDecisions(defaultDecisions(msg.matches));
@@ -55,6 +61,12 @@ export function App() {
           ...all,
           [msg.groupId]: { targetKey: msg.targetKey, before: url(msg.before), after: url(msg.after), pick: msg.pick, lost: msg.lost, sizeChanged: msg.sizeChanged },
         }));
+        setBusy(null);
+      } else if (msg.type === 'applied') {
+        setApplied(msg.result);
+        setBusy(null);
+      } else if (msg.type === 'undone') {
+        setUndone({ restored: msg.restored, failed: msg.failed });
         setBusy(null);
       } else if (msg.type === 'error') {
         setError(msg.message);
@@ -73,6 +85,19 @@ export function App() {
 
   if (!ready) return <main class="muted">Загрузка…</main>;
 
+  // Выбранные пары → команда «Заменить».
+  const choices: { groupId: string; target: TargetRef }[] = [];
+  let places = 0;
+  if (scanned && matched) {
+    for (const g of scanned.report.groups) {
+      const c = decisions[g.id] && matched.matches[g.id]?.alternatives.find((x) => x.key === decisions[g.id]);
+      if (!c || g.detached || g.origin === 'ours') continue;
+      choices.push({ groupId: g.id, target: { key: c.key, isSet: c.isSet } });
+      places += g.count;
+    }
+  }
+  const showReport = !library && scanned && !applied;
+
   return (
     <>
       <header>
@@ -81,7 +106,8 @@ export function App() {
       </header>
       <main>
         {(library || !scanned) && <Indexes libraries={libraries} indexes={indexes} current={library} />}
-        {!library && scanned && (
+        {!library && applied && <Applied result={applied} undone={undone} />}
+        {showReport && (
           <Report
             scanned={scanned}
             matched={matched}
@@ -101,9 +127,21 @@ export function App() {
             Собрать индекс
           </button>
         ) : (
-          <button class={scanned ? '' : 'primary'} disabled={!!busy || !indexes.length} onClick={() => run({ type: 'scan' }, 'Сканирую…')}>
-            {scanned ? 'Пересканировать' : 'Сканировать'}
-          </button>
+          <>
+            <button class={scanned ? '' : 'primary'} disabled={!!busy || !indexes.length} onClick={() => run({ type: 'scan' }, 'Сканирую…')}>
+              {scanned ? 'Пересканировать' : 'Сканировать'}
+            </button>
+            {showReport && (
+              <button class="primary" disabled={!!busy || !choices.length} onClick={() => run({ type: 'apply', choices }, 'Заменяю…')}>
+                Заменить · {places}
+              </button>
+            )}
+            {applied && !undone && (applied.replaced > 0 || applied.nested > 0) && (
+              <button disabled={!!busy} onClick={() => run({ type: 'undo' }, 'Возвращаю…')}>
+                Отменить
+              </button>
+            )}
+          </>
         )}
         <span class="muted">{busy ?? (!library && !scanned ? 'Выделение или вся страница' : '')}</span>
       </footer>
