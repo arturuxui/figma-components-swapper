@@ -9,7 +9,7 @@
 **Файлы макетов не меняем.** Опыты — только на копиях на отдельной странице в том же файле с префиксом
 «Components Swapper · …» (решение инженера 2026-10-09); после опытов страницу удаляем по просьбе инженера.
 Сейчас в ✅ Driver App • Order есть «Components Swapper · Order (full run)» (`8235:2996`); «Sandbox» удалена.
-В 🚕 New Driver DEV 🚀 — «Components Swapper · Composite» (`4463:23144`, опыт этапа 2в).
+В 🚕 New Driver DEV 🚀 страница опыта 2в «Components Swapper · Composite» удалена; там же измерена полнота 2б.
 
 ## Driver
 
