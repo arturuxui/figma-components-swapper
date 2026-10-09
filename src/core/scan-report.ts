@@ -39,7 +39,7 @@ export interface DetachedFinding {
 }
 
 export interface ReportGroup {
-  /** Ключ набора, иначе ключ компонента (у отвязанных от локального — id компонента). */
+  /** Ключ набора, иначе ключ компонента; у отвязанных — `d:` + ключ (или id локального) компонента. */
   id: string;
   origin: Origin;
   /** Находка — экземпляр или отвязанный фрейм. */
@@ -58,6 +58,8 @@ export interface ReportGroup {
   nodeIds: string[];
   /** Для наших — из какой библиотеки. */
   libraryId?: string;
+  /** Отвязанный от библиотечного компонента: его ключ (у отвязанных от нашего — это и есть пара). */
+  detachedKey?: string;
 }
 
 export interface ScanReport {
@@ -119,7 +121,8 @@ export function buildReport(
     else totals.detachedOther++;
     const id = f.detached.type === 'library' ? f.detached.componentKey : f.detached.componentId;
     const hit = f.detached.type === 'library' ? lookup.get(id) : undefined;
-    add(`d:${id}`, { id, origin, detached: true, name: hit?.name ?? f.name, libraryId: hit?.libraryId }, f);
+    const detachedKey = f.detached.type === 'library' ? f.detached.componentKey : undefined;
+    add(`d:${id}`, { id: `d:${id}`, origin, detached: true, name: hit?.name ?? f.name, libraryId: hit?.libraryId, detachedKey }, f);
   }
 
   const list = [...groups.values()].map(({ screenIds, ...g }) => ({ ...g, screens: screenIds.size }));

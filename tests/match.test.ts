@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { INDEX_FORMAT, type LibraryIndex } from '../src/core/library-index';
-import { buildCandidates, guessProduct, matchByName, normalizeName, sizeDistance } from '../src/core/match';
+import { buildCandidates, guessProduct, matchByName, normalizeName, resolveChoice, sizeDistance } from '../src/core/match';
 import { pickVariant } from '../src/core/variants';
 
 const index = (libraryId: string, product: string, kind: 'components' | 'icons', partial: Partial<LibraryIndex>): LibraryIndex => ({
@@ -99,6 +99,16 @@ describe('matchByName', () => {
 
   it('нет такого имени — none', () => {
     expect(matchByName('bg', { width: 360, height: 720 }, byName, 'driver')).toEqual({ status: 'none', alternatives: [] });
+  });
+});
+
+describe('resolveChoice', () => {
+  const alts = byName.get('fab/secondary')!;
+  it('ключ набора — набор целиком, ключ варианта — этот вариант', () => {
+    expect(alts[0].variants?.map((v) => v.name)).toEqual(['Text=No', 'Text=Yes']);
+    expect(resolveChoice(alts, 'S-fab')?.target).toEqual({ key: 'S-fab', isSet: true });
+    expect(resolveChoice(alts, 'fab-yes')).toMatchObject({ owner: { key: 'S-fab' }, target: { key: 'fab-yes', isSet: false } });
+    expect(resolveChoice(alts, 'nope')).toBeNull();
   });
 });
 

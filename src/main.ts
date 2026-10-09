@@ -2,9 +2,9 @@
 
 import libraries from '../config/libraries.json';
 import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
-import { buildCandidates, guessProduct, matchByName, type Candidate } from './core/match';
+import { buildCandidates, guessProduct, matchByName, type Candidate, type MatchResult } from './core/match';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
-import { applySwaps, undoSwaps } from './figma/apply';
+import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
 import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
@@ -30,14 +30,26 @@ void (async () => {
 /** Последний скан: по нему подбираются пары, делается примерка и (этап 1в) замена. */
 let last: { report: ScanReport; byName: Map<string, Candidate[]>; lookup: Map<string, KeyHit>; products: string[]; product: string | null } | null = null;
 
-/** Группы, которые надо менять: чужие и локальные экземпляры (отвязанные фреймы — этап 2). */
+/** Чужие и локальные экземпляры — по ним угадывается продукт макета. */
 const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && g.origin !== 'ours');
+/** Всё, что можно заменить: чужие и локальные экземпляры (этап 1) и отвязанные фреймы (этап 2). */
+const replaceable = (report: ScanReport) => report.groups.filter((g) => g.detached || g.origin !== 'ours');
+
+/** Пара для группы: отвязанный от нашего — тот самый компонент; остальное — по имени. */
+function matchFor(g: ReportGroup, byName: Map<string, Candidate[]>, lookup: Map<string, KeyHit>, product: string | null): MatchResult {
+  const hit = g.detachedKey ? lookup.get(g.detachedKey) : undefined;
+  if (g.detached && g.origin === 'ours' && g.detachedKey && hit) {
+    const own: Candidate = { key: g.detachedKey, isSet: false, name: hit.name, libraryId: hit.libraryId, product: hit.product, kind: hit.kind, sizes: [{ width: g.width, height: g.height }] };
+    return { status: 'exact', target: own, alternatives: [own] };
+  }
+  return matchByName(g.name, g, byName, product ?? undefined);
+}
 
 function sendMatches(product: string | null) {
   if (!last) return;
   last.product = product;
   const matches: Matches = {};
-  for (const g of toReplace(last.report)) matches[g.id] = matchByName(g.name, g, last.byName, product ?? undefined);
+  for (const g of replaceable(last.report)) matches[g.id] = matchFor(g, last.byName, last.lookup, product);
   post({ type: 'matched', product, products: last.products, matches });
 }
 
@@ -53,6 +65,8 @@ async function buildIndex() {
 }
 
 async function scan() {
+  // Фреймы, заменённые прошлым применением, удаляются окончательно — их отмена больше недоступна.
+  finalizeFrames();
   const indexes: LibraryIndex[] = await loadIndexes(allIds);
   if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
   const selection = figma.currentPage.selection;
@@ -74,15 +88,15 @@ async function scan() {
 }
 
 async function preview(groupId: string, target: { key: string; isSet: boolean }) {
-  const group: ReportGroup | undefined = last ? toReplace(last.report).find((g) => g.id === groupId) : undefined;
-  if (!group) throw new Error('Группа не найдена — пересканируйте макет.');
-  const result = await previewSwap(group.exampleNodeId, target);
+  const group: ReportGroup | undefined = last ? replaceable(last.report).find((g) => g.id === groupId) : undefined;
+  if (!group || !last) throw new Error('Группа не найдена — пересканируйте макет.');
+  const result = await previewSwap(group.exampleNodeId, target, { byName: last.byName, product: last.product ?? undefined });
   post({ type: 'preview', groupId, targetKey: target.key, ...result });
 }
 
 async function apply(choices: { groupId: string; target: { key: string; isSet: boolean } }[]) {
   if (!last) throw new Error('Сначала просканируйте макет.');
-  const groups = toReplace(last.report);
+  const groups = replaceable(last.report);
   const selected = choices.flatMap(({ groupId, target }) => {
     const g = groups.find((x) => x.id === groupId);
     return g ? [{ name: g.name, nodeIds: g.nodeIds, target }] : [];
@@ -103,6 +117,8 @@ async function focus(nodeId: string) {
   figma.currentPage.selection = [node as SceneNode];
   figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
 }
+
+figma.on('close', finalizeFrames);
 
 figma.ui.onmessage = async (msg: ToPlugin) => {
   try {
