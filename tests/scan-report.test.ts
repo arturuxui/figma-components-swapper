@@ -17,6 +17,8 @@ const inst = (nodeId: string, screen: typeof screenA, componentKey: string, extr
   componentKey,
   componentName: componentKey,
   remote: true,
+  width: 100,
+  height: 40,
   ...extra,
 });
 
@@ -41,8 +43,8 @@ describe('buildReport', () => {
     inst('2:6', screenB, 'mine', { remote: false }),
   ];
   const detached: DetachedFinding[] = [
-    { nodeId: '3:1', name: 'divider copy', screen: screenA, detached: { type: 'library', componentKey: 'divider' } },
-    { nodeId: '3:2', name: 'card', screen: screenB, detached: { type: 'local', componentId: '9:9' } },
+    { nodeId: '3:1', name: 'divider copy', screen: screenA, width: 360, height: 1, detached: { type: 'library', componentKey: 'divider' } },
+    { nodeId: '3:2', name: 'card', screen: screenB, width: 328, height: 120, detached: { type: 'local', componentId: '9:9' } },
   ];
   const report = buildReport(instances, detached, lookup);
 
@@ -52,7 +54,7 @@ describe('buildReport', () => {
 
   it('группирует варианты одного набора и считает экраны', () => {
     const button = report.groups.find((g) => g.id === 'old-set')!;
-    expect(button).toMatchObject({ origin: 'foreign', name: 'Button', count: 3, screens: 2, exampleNodeId: '2:1', exampleScreen: 'Order' });
+    expect(button).toMatchObject({ origin: 'foreign', name: 'Button', count: 3, screens: 2, exampleNodeId: '2:1', exampleScreen: 'Order', nodeIds: ['2:1', '2:2', '2:3'] });
   });
 
   it('сначала чужие (по убыванию), потом локальные, наши — в конце', () => {

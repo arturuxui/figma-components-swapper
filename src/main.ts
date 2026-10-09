@@ -1,12 +1,14 @@
 // Код плагина в песочнице Figma: определяет, открыт ли файл библиотеки, и выполняет команды UI.
 
 import libraries from '../config/libraries.json';
-import { buildLookup, summarizeIndex, type LibraryKind } from './core/library-index';
-import { buildReport } from './core/scan-report';
+import { buildLookup, summarizeIndex, type LibraryIndex, type LibraryKind } from './core/library-index';
+import { buildCandidates, guessProduct, matchByName, type Candidate } from './core/match';
+import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
 import { buildLibraryIndex } from './figma/index-library';
+import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
-import type { LibraryInfo, ToPlugin, ToUi } from './shared/messages';
+import type { LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
 
 type LibraryConfig = (typeof libraries.libraries)[number];
 
@@ -18,11 +20,24 @@ const allIds = libraries.libraries.map((l) => l.id);
 /** Файл библиотеки — по fileKey (нужен enablePrivatePluginApi). */
 const library = libraries.libraries.find((l) => l.fileKey === figma.fileKey);
 
-figma.showUI(__html__, { width: 420, height: 600, themeColors: true });
+figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
 void (async () => {
   post({ type: 'init', library: library ? info(library) : null, libraries: libraries.libraries.map(info), indexes: summaries(await loadIndexes(allIds)) });
 })();
+
+/** Последний скан: по нему подбираются пары, делается примерка и (этап 1в) замена. */
+let last: { report: ScanReport; byName: Map<string, Candidate[]>; products: string[] } | null = null;
+
+/** Группы, которые надо менять: чужие и локальные экземпляры (отвязанные фреймы — этап 2). */
+const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && g.origin !== 'ours');
+
+function sendMatches(product: string | null) {
+  if (!last) return;
+  const matches: Matches = {};
+  for (const g of toReplace(last.report)) matches[g.id] = matchByName(g.name, g, last.byName, product ?? undefined);
+  post({ type: 'matched', product, products: last.products, matches });
+}
 
 async function buildIndex() {
   if (!library) throw new Error('Индекс собирается в файле библиотеки WB AID.');
@@ -36,20 +51,31 @@ async function buildIndex() {
 }
 
 async function scan() {
-  const indexes = await loadIndexes(allIds);
+  const indexes: LibraryIndex[] = await loadIndexes(allIds);
   if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
   const selection = figma.currentPage.selection;
   const scope = selection.length ? 'selection' : 'page';
   const roots = selection.length ? selection : figma.currentPage.children;
   const lookup = buildLookup(indexes);
   const found = await scanNodes(roots, lookup, progress);
+  const report = buildReport(found.instances, found.detached, lookup);
+  const byName = buildCandidates(indexes);
+  last = { report, byName, products: [...new Set(indexes.map((i) => i.product))].sort() };
   post({
     type: 'scanned',
-    report: buildReport(found.instances, found.detached, lookup),
+    report,
     scope,
     scopeName: scope === 'selection' ? `выделено: ${selection.length}` : figma.currentPage.name,
     unreadable: found.unreadable,
   });
+  sendMatches(guessProduct(toReplace(report), byName) ?? last.products[0] ?? null);
+}
+
+async function preview(groupId: string, target: { key: string; isSet: boolean }) {
+  const group: ReportGroup | undefined = last ? toReplace(last.report).find((g) => g.id === groupId) : undefined;
+  if (!group) throw new Error('Группа не найдена — пересканируйте макет.');
+  const result = await previewSwap(group.exampleNodeId, target);
+  post({ type: 'preview', groupId, targetKey: target.key, ...result });
 }
 
 async function focus(nodeId: string) {
@@ -66,6 +92,8 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
   try {
     if (msg.type === 'build-index') await buildIndex();
     else if (msg.type === 'scan') await scan();
+    else if (msg.type === 'set-product') sendMatches(msg.product);
+    else if (msg.type === 'preview') await preview(msg.groupId, msg.target);
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'open-library') figma.openExternal(msg.url);
   } catch (e) {

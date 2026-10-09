@@ -44,6 +44,8 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
         setKey: set?.key,
         setName: set?.name,
         remote: main.remote,
+        width: node.width,
+        height: node.height,
       };
       result.instances.push(finding);
       if (classifyInstance(finding, lookup) !== 'ours') return;
@@ -53,6 +55,8 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
         nodeId: node.id,
         name: node.name,
         screen,
+        width: node.width,
+        height: node.height,
         detached: info.type === 'library' ? { type: 'library', componentKey: info.componentKey } : { type: 'local', componentId: info.componentId },
       });
     }
