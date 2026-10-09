@@ -17,6 +17,24 @@
       "short": "Driver · иконки",
       "fileKey": "AwRpEGfyeNjRbZP8KGG1wy",
       "url": "https://www.figma.com/design/AwRpEGfyeNjRbZP8KGG1wy"
+    },
+    {
+      "id": "rider-components",
+      "product": "rider",
+      "kind": "components",
+      "name": "WB AID Rider Components",
+      "short": "Rider · компоненты",
+      "fileKey": "79UryRdexwKAv8vDIV5v4v",
+      "url": "https://www.figma.com/design/79UryRdexwKAv8vDIV5v4v"
+    },
+    {
+      "id": "rider-icons",
+      "product": "rider",
+      "kind": "icons",
+      "name": "Rider Icons",
+      "short": "Rider · иконки",
+      "fileKey": "n6LppQbTv85yI29h6u30DI",
+      "url": "https://www.figma.com/design/n6LppQbTv85yI29h6u30DI"
     }
   ]
 }
