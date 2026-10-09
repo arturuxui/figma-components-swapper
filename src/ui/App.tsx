@@ -15,7 +15,7 @@ const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'nume
 /** Решение по умолчанию: уверенные пары — заменить, остальное — ждёт дизайнера. */
 function defaultDecisions(matches: Matches): Decisions {
   const out: Decisions = {};
-  for (const [id, m] of Object.entries(matches)) out[id] = m.status === 'exact' && m.target ? m.target.key : '';
+  for (const [id, m] of Object.entries(matches)) out[id] = (m.status === 'exact' || m.status === 'stretched') && m.target ? m.target.key : '';
   return out;
 }
 

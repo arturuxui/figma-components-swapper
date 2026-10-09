@@ -66,6 +66,20 @@ describe('matchByName', () => {
     expect(matchByName('description', { width: 47, height: 32 }, byName, 'driver').status).toBe('size');
   });
 
+  it('растянут по ширине при той же высоте — stretched', () => {
+    expect(matchByName('description', { width: 1200, height: 40 }, byName, 'driver')).toMatchObject({ status: 'stretched', target: { key: 'desc' } });
+    expect(matchByName('description', { width: 200, height: 40.6 }, byName, 'driver').status).toBe('stretched');
+  });
+
+  it('растяжение не подходит: выросла высота, квадратный компонент, одноимённые', () => {
+    // высота отличается больше чем на 1 px
+    expect(matchByName('description', { width: 1200, height: 44 }, byName, 'driver').status).toBe('size');
+    // квадратная иконка, растянутая по ширине, — не растяжение
+    expect(matchByName('check_round', { width: 60, height: 24 }, byName, 'driver').status).toBe('size');
+    // одноимённые не разводятся растяжением
+    expect(matchByName('default', { width: 600, height: 48 }, byName, 'driver').status).toBe('ambiguous');
+  });
+
   it('одноимённые разводятся размером', () => {
     expect(matchByName('default', { width: 328, height: 48 }, byName, 'driver').target?.key).toBe('S-default-btn');
     expect(matchByName('default', { width: 360, height: 420 }, byName, 'driver').target?.key).toBe('S-default-dialog');

@@ -23,6 +23,7 @@ type Matched = Extract<ToUi, { type: 'matched' }>;
 const ORIGIN_LABEL: Record<Origin, string> = { foreign: 'Чужой', local: 'Локальный', ours: 'Наш' };
 const STATUS: Record<MatchStatus, { label: string; cls: string; hint: string }> = {
   exact: { label: 'Пара', cls: 'ours', hint: 'Наш компонент с тем же именем и подходящим размером' },
+  stretched: { label: 'Растянут', cls: 'ours', hint: 'Тот же компонент, растянутый по ширине: высота совпала, компонент горизонтальный. Проверьте примеркой' },
   size: { label: 'Другой размер', cls: 'foreign', hint: 'Имя совпало, размер отличается больше чем на 20 % — проверьте назначение примеркой' },
   ambiguous: { label: 'Выбрать', cls: 'foreign', hint: 'Несколько наших компонентов с этим именем — выберите нужный' },
   none: { label: 'Нет пары', cls: 'local', hint: 'Нет нашего компонента с таким именем (этапы 2–3)' },
