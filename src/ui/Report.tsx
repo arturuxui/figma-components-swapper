@@ -32,6 +32,7 @@ const STATUS: Record<MatchStatus, { label: string; cls: string; hint: string }> 
   none: { label: 'Нет пары', cls: 'local', hint: 'Нет нашего компонента с таким именем (этапы 2–3)' },
   named: { label: 'Имя и устройство', cls: 'foreign', hint: 'Ручной фрейм: имя как у нашего компонента, устройство похоже — посмотрите примерку' },
   similar: { label: 'Похож по устройству', cls: 'foreign', hint: 'Ручной фрейм со своим оформлением, устроен почти как наш компонент — посмотрите примерку' },
+  composite: { label: 'Составной', cls: 'foreign', hint: 'Фрейм со своим оформлением и теми же компонентами внутри, что у нашего составного компонента, — посмотрите примерку' },
 };
 const PRODUCT_LABEL: Record<string, string> = { driver: 'Driver', rider: 'Rider' };
 
@@ -134,7 +135,10 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
       {manual.length > 0 && (
         <section>
           <h2>Ручные фреймы, похожие на наши компоненты</h2>
-          <p class="muted">Не компоненты и не отвязанные, но устроены как наши. Ничего не выбрано сразу — посмотрите примерку и решите.</p>
+          <p class="muted">
+            Не компоненты и не отвязанные, но устроены как наши — или собраны из наших компонентов, как наш составной. Ничего не выбрано сразу —
+            посмотрите примерку и решите.
+          </p>
           <ul class="rows">
             {manual.map((g) => (
               <Row

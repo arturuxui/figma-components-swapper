@@ -119,7 +119,7 @@ export function isWidthStretch(size: Size, candidate: Candidate): boolean {
  * - `ambiguous` — несколько одноимённых, размер не разводит: выбор дизайнера;
  * - `none` — по имени не нашлось.
  */
-export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none' | 'named' | 'similar';
+export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none' | 'named' | 'similar' | 'composite';
 
 export interface MatchResult {
   status: MatchStatus;

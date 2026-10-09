@@ -37,7 +37,8 @@ export async function scanNodes(
   /** Экран — фрейм верхнего уровня страницы или секции; ручные кандидаты — только внутри экранов (не аннотации на холсте). */
   const isScreen = (node: SceneNode) => node.type === 'FRAME' && (node.parent?.type === 'PAGE' || node.parent?.type === 'SECTION');
 
-  const visit = async (node: SceneNode, screen: ScreenRef, insideInstance: boolean, insideScreen: boolean): Promise<void> => {
+  /** `shown` — все родители видимы: в скрытой секции или фрейме ручные кандидаты не ищем (их нет в макете). */
+  const visit = async (node: SceneNode, screen: ScreenRef, insideInstance: boolean, insideScreen: boolean, shown: boolean): Promise<void> => {
     if (++seen % 500 === 0) progress(`Просмотрено слоёв: ${seen}`);
     // Фрейм, уже заменённый экземпляром и ждущий удаления (см. replace-frame.ts), — не находка.
     if (node.type === 'FRAME' && !node.visible) {
@@ -88,6 +89,7 @@ export async function scanNodes(
     } else if (
       manual &&
       node.type === 'FRAME' &&
+      shown &&
       node.visible &&
       !insideInstance &&
       insideScreen &&
@@ -100,11 +102,11 @@ export async function scanNodes(
     }
 
     if (hasChildren(node)) {
-      for (const child of node.children) await visit(child, screen, insideInstance, insideScreen || isScreen(node));
+      for (const child of node.children) await visit(child, screen, insideInstance, insideScreen || isScreen(node), shown && node.visible);
     }
   };
 
   // Выделен фрагмент внутри экрана — он уже «внутри экрана».
-  for (const root of roots) await visit(root, { id: root.id, name: root.name }, false, root.parent?.type !== 'PAGE' && root.parent?.type !== 'SECTION');
+  for (const root of roots) await visit(root, { id: root.id, name: root.name }, false, root.parent?.type !== 'PAGE' && root.parent?.type !== 'SECTION', true);
   return result;
 }

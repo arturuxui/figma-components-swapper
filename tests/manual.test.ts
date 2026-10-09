@@ -85,4 +85,13 @@ describe('groupManual', () => {
       [1, true],
     ]);
   });
+
+  it('одно имя и размер, но разное устройство — разные группы (пара подбирается по первому фрейму)', () => {
+    const groups = groupManual([
+      finding('balance panel', 328, 80, shape(3, 2, 'NONE', ['balance', 'balance', 'balance'])),
+      { ...finding('balance panel', 328, 80, shape(3, 0, 'NONE', ['balance', 'balance', 'balance'])), nodeId: 'no-icons' },
+      { ...finding('balance panel', 328, 80, shape(3, 2, 'NONE', ['Balance', 'balance', 'balance'])), nodeId: 'same' },
+    ]);
+    expect(groups.map((g) => g.nodeIds)).toEqual([['n-balance panel-328', 'same'], ['no-icons']]);
+  });
 });
