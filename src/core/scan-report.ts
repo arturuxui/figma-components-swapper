@@ -44,6 +44,8 @@ export interface ReportGroup {
   origin: Origin;
   /** Находка — экземпляр или отвязанный фрейм. */
   detached: boolean;
+  /** Ручной фрейм, похожий на наш компонент (этап 2б). */
+  manual?: boolean;
   name: string;
   count: number;
   /** На скольких экранах встречается. */

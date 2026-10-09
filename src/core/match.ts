@@ -6,6 +6,7 @@
 // не разводит — решает дизайнер.
 
 import type { LibraryIndex, LibraryKind } from './library-index';
+import type { Shape } from './structure';
 
 /** Допуск по размеру: ±20 % по каждой стороне (как в скилле, Шаг 05b). */
 export const SIZE_TOLERANCE = 0.2;
@@ -45,7 +46,9 @@ export interface Candidate {
   /** Размеры вариантов набора (у одиночного — один). */
   sizes: Size[];
   /** Варианты набора — чтобы дизайнер мог выбрать вариант сам (у отвязанных фреймов). */
-  variants?: { key: string; name: string }[];
+  variants?: { key: string; name: string; shape?: Shape }[];
+  /** Устройство одиночного компонента (этап 2б). */
+  shape?: Shape;
 }
 
 /**
@@ -73,16 +76,16 @@ export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, C
   for (const index of indexes) {
     const base = { libraryId: index.libraryId, product: index.product, kind: index.kind };
     const setSizes = new Map<string, Size[]>();
-    const setVariants = new Map<string, { key: string; name: string }[]>();
+    const setVariants = new Map<string, { key: string; name: string; shape?: Shape }[]>();
     for (const e of index.entries) {
       if (e.setKey) {
         const list = setSizes.get(e.setKey) ?? [];
         list.push({ width: e.width, height: e.height });
         setSizes.set(e.setKey, list);
         const variants = setVariants.get(e.setKey) ?? [];
-        variants.push({ key: e.key, name: e.name });
+        variants.push({ key: e.key, name: e.name, shape: e.shape && { ...e.shape, width: e.width, height: e.height } });
         setVariants.set(e.setKey, variants);
-      } else push({ ...base, key: e.key, isSet: false, name: e.name, sizes: [{ width: e.width, height: e.height }] });
+      } else push({ ...base, key: e.key, isSet: false, name: e.name, sizes: [{ width: e.width, height: e.height }], shape: e.shape && { ...e.shape, width: e.width, height: e.height } });
     }
     for (const set of index.sets) push({ ...base, key: set.key, isSet: true, name: set.name, sizes: setSizes.get(set.key) ?? [], variants: setVariants.get(set.key) ?? [] });
   }
@@ -116,10 +119,12 @@ export function isWidthStretch(size: Size, candidate: Candidate): boolean {
  * - `ambiguous` — несколько одноимённых, размер не разводит: выбор дизайнера;
  * - `none` — по имени не нашлось.
  */
-export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none';
+export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none' | 'named' | 'similar';
 
 export interface MatchResult {
   status: MatchStatus;
+  /** Похожесть устройства, 0..1 — у ручных фреймов (`named`, `similar`). */
+  score?: number;
   /** Предложенный кандидат (у `ambiguous` и `none` — нет). */
   target?: Candidate;
   /** Все одноимённые кандидаты продукта — ближайшие по размеру первыми. */
