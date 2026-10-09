@@ -1,0 +1,22 @@
+{
+  "libraries": [
+    {
+      "id": "driver-components",
+      "product": "driver",
+      "kind": "components",
+      "name": "WB AID Driver Components",
+      "short": "Driver · компоненты",
+      "fileKey": "o0IUYIS7vadbmXPXd81ql9",
+      "url": "https://www.figma.com/design/o0IUYIS7vadbmXPXd81ql9"
+    },
+    {
+      "id": "driver-icons",
+      "product": "driver",
+      "kind": "icons",
+      "name": "Driver Icons",
+      "short": "Driver · иконки",
+      "fileKey": "AwRpEGfyeNjRbZP8KGG1wy",
+      "url": "https://www.figma.com/design/AwRpEGfyeNjRbZP8KGG1wy"
+    }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "figma-components-swapper",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Figma plugin: replaces components and icons from foreign libraries with WB AID Rider/Driver ones",
+  "type": "module",
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "watch": "node scripts/build.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@figma/plugin-typings": "^1.140.0",
+    "@types/node": "^26.6.4",
+    "esbuild": "^0.28.2",
+    "typescript": "^7.0.2",
+    "vitest": "^5.0.3"
+  },
+  "dependencies": {
+    "preact": "^11.0.0"
+  }
+}

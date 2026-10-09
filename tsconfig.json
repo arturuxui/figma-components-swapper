@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "es2020",
+    "module": "esnext",
+    "moduleResolution": "bundler",
+    "lib": ["es2020", "dom"],
+    "strict": true,
+    "noEmit": true,
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact",
+    "types": ["@figma/plugin-typings", "node"],
+    "skipLibCheck": true,
+    "resolveJsonModule": true
+  },
+  "include": ["src", "config", "tests", "scripts"]
+}
