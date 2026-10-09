@@ -9,6 +9,10 @@ import type { LibraryIndex, LibraryKind } from './library-index';
 
 /** Допуск по размеру: ±20 % по каждой стороне (как в скилле, Шаг 05b). */
 export const SIZE_TOLERANCE = 0.2;
+/** Растянут: высота совпала с вариантом с такой точностью, px. */
+export const STRETCH_HEIGHT_PX = 1;
+/** Растянут: только горизонтальные компоненты (строки, полосы) — ширина не меньше стольких высот. */
+export const STRETCH_MIN_ASPECT = 3;
 
 /**
  * Имя для сравнения: без регистра, без эмодзи и знаков в начале (`🔷 push`, `.base`, ` StatusInfo`),
@@ -76,12 +80,25 @@ export function sizeDistance(size: Size, candidate: Candidate): number {
 }
 
 /**
+ * Растянутый по ширине экземпляр того же компонента: высота совпала с вариантом (±1 px), ширина другая, а сам
+ * компонент горизонтальный (строка, полоса). То, что экземпляр можно растянуть, ещё не значит, что это пара,
+ * поэтому условия узкие: высота — точно, только ширина, только горизонтальные компоненты. Выросшая высота
+ * (другой контент, другой вариант) сюда не попадает.
+ */
+export function isWidthStretch(size: Size, candidate: Candidate): boolean {
+  return candidate.sizes.some(
+    (s) => s.height > 0 && s.width >= STRETCH_MIN_ASPECT * s.height && Math.abs(size.height - s.height) <= STRETCH_HEIGHT_PX && Math.abs(size.width - s.width) > STRETCH_HEIGHT_PX,
+  );
+}
+
+/**
  * - `exact` — один подходящий кандидат по имени и размеру (или размер развёл одноимённых);
+ * - `stretched` — один кандидат по имени, экземпляр растянут по ширине (`isWidthStretch`);
  * - `size` — имя совпало, размер нет: проверить назначение (правило 27);
  * - `ambiguous` — несколько одноимённых, размер не разводит: выбор дизайнера;
  * - `none` — по имени не нашлось.
  */
-export type MatchStatus = 'exact' | 'size' | 'ambiguous' | 'none';
+export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none';
 
 export interface MatchResult {
   status: MatchStatus;
@@ -100,7 +117,12 @@ export function matchByName(name: string, size: Size, byName: ReadonlyMap<string
   const alternatives = list.map((x) => x.c);
   if (!list.length) return { status: 'none', alternatives };
   const fits = list.filter((x) => x.d <= SIZE_TOLERANCE);
-  if (list.length === 1) return { status: fits.length ? 'exact' : 'size', target: list[0].c, alternatives };
+  if (list.length === 1) {
+    const only = list[0].c;
+    // Одноимённых нет: растянутый по ширине — тоже пара. Среди одноимённых растяжением не разводим.
+    const status = fits.length ? 'exact' : isWidthStretch(size, only) ? 'stretched' : 'size';
+    return { status, target: only, alternatives };
+  }
   if (fits.length === 1) return { status: 'exact', target: fits[0].c, alternatives };
   return { status: 'ambiguous', alternatives };
 }
