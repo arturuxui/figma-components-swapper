@@ -92,13 +92,40 @@ function overlap(a: readonly string[], b: readonly string[]): number {
 }
 
 /**
+ * Устройство без самих текстов и id — то, что хранится в индексе библиотеки для каждого варианта (этап 2б):
+ * сравнивать ручной фрейм со всеми нашими компонентами, не открывая файл библиотеки.
+ */
+export interface Shape {
+  width: number;
+  height: number;
+  layoutMode: string;
+  textCount: number;
+  iconCount: number;
+  /** Вложенные компоненты крупнее иконки — по имени. */
+  parts: string[];
+}
+
+export const shapeOf = (sig: Signature): Shape => ({
+  width: sig.width,
+  height: sig.height,
+  layoutMode: sig.layoutMode,
+  textCount: sig.texts.length,
+  iconCount: sig.icons.length,
+  parts: [...sig.parts],
+});
+
+const asShape = (x: Signature | Shape): Shape => ('textCount' in x ? x : shapeOf(x));
+
+/**
  * Похожесть устройства фрагмента и варианта нашего компонента, 0..1. Вес: число текстов — главное (иначе тексты
  * некуда переносить), дальше число иконок, вложенные компоненты, раскладка, размер.
  */
-export function structureScore(a: Signature, b: Signature): number {
+export function structureScore(sa: Signature | Shape, sb: Signature | Shape): number {
+  const a = asShape(sa);
+  const b = asShape(sb);
   const count = (x: number, y: number) => (x === y ? 1 : Math.min(x, y) / Math.max(x, y));
-  const texts = count(a.texts.length, b.texts.length);
-  const icons = count(a.icons.length, b.icons.length);
+  const texts = count(a.textCount, b.textCount);
+  const icons = count(a.iconCount, b.iconCount);
   const parts = overlap(a.parts, b.parts);
   const layout = a.layoutMode === b.layoutMode ? 1 : 0;
   const size = 1 - Math.min(1, Math.max(side(a.width, b.width), side(a.height, b.height)));

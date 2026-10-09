@@ -1,6 +1,15 @@
 // Сбор индекса в открытом файле библиотеки: все опубликуемые компоненты и наборы на всех страницах.
 
 import { INDEX_FORMAT, isPrivateName, parseVariantName, type IndexEntry, type IndexSet, type LibraryIndex, type LibraryKind } from '../core/library-index';
+import { shapeOf, signature } from '../core/structure';
+import { snapshot } from './structure';
+
+/** Устройство компонента для индекса (этап 2б). У иконок не нужно — они сравниваются по рисунку (этап 3). */
+async function shapeFor(c: ComponentNode, kind: LibraryKind): Promise<IndexEntry['shape']> {
+  if (kind === 'icons') return undefined;
+  const { width: _w, height: _h, ...rest } = shapeOf(signature(await snapshot(c)));
+  return rest;
+}
 
 export interface IndexTarget {
   libraryId: string;
@@ -41,6 +50,7 @@ export async function buildLibraryIndex(target: IndexTarget, progress: (text: st
         const variants = node.children.filter((c): c is ComponentNode => c.type === 'COMPONENT');
         sets.push({ key: node.key, name: node.name, axes: axesOf(node), variants: variants.length });
         for (const v of variants) {
+          const shape = await shapeFor(v, target.kind);
           entries.push({
             key: v.key,
             name: v.name,
@@ -50,10 +60,11 @@ export async function buildLibraryIndex(target: IndexTarget, progress: (text: st
             width: round(v.width),
             height: round(v.height),
             page: page.name,
+            shape,
           });
         }
       } else if (node.parent?.type !== 'COMPONENT_SET' && !isPrivateName(node.name)) {
-        entries.push({ key: node.key, name: node.name, width: round(node.width), height: round(node.height), page: page.name });
+        entries.push({ key: node.key, name: node.name, width: round(node.width), height: round(node.height), page: page.name, shape: await shapeFor(node, target.kind) });
       }
     }
   }

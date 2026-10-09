@@ -30,6 +30,8 @@ const STATUS: Record<MatchStatus, { label: string; cls: string; hint: string }> 
   size: { label: 'Другой размер', cls: 'foreign', hint: 'Имя совпало, размер отличается больше чем на 20 % — проверьте назначение примеркой' },
   ambiguous: { label: 'Выбрать', cls: 'foreign', hint: 'Несколько наших компонентов с этим именем — выберите нужный' },
   none: { label: 'Нет пары', cls: 'local', hint: 'Нет нашего компонента с таким именем (этапы 2–3)' },
+  named: { label: 'Имя и устройство', cls: 'foreign', hint: 'Ручной фрейм: имя как у нашего компонента, устройство похоже — посмотрите примерку' },
+  similar: { label: 'Похож по устройству', cls: 'foreign', hint: 'Ручной фрейм со своим оформлением, устроен почти как наш компонент — посмотрите примерку' },
 };
 const PRODUCT_LABEL: Record<string, string> = { driver: 'Driver', rider: 'Rider' };
 
@@ -49,12 +51,13 @@ interface Props {
 export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview }: Props) {
   const { report, scopeName, unreadable } = scanned;
   const t = report.totals;
-  const toReplace = report.groups.filter((g) => !g.detached && g.origin !== 'ours');
+  const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
+  const manual = report.groups.filter((g) => g.manual);
   const matches: Matches = matched?.matches ?? {};
-  const chosen = [...toReplace, ...detached].filter((g) => decisions[g.id]);
+  const chosen = [...toReplace, ...detached, ...manual].filter((g) => decisions[g.id]);
   const places = chosen.reduce((n, g) => n + g.count, 0);
-  const allPlaces = [...toReplace, ...detached].reduce((n, g) => n + g.count, 0);
+  const allPlaces = [...toReplace, ...detached, ...manual].reduce((n, g) => n + g.count, 0);
 
   return (
     <>
@@ -128,7 +131,27 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
           </ul>
         </section>
       )}
-      {!toReplace.length && !detached.length && <p>Всё из библиотек WB AID.</p>}
+      {manual.length > 0 && (
+        <section>
+          <h2>Ручные фреймы, похожие на наши компоненты</h2>
+          <p class="muted">Не компоненты и не отвязанные, но устроены как наши. Ничего не выбрано сразу — посмотрите примерку и решите.</p>
+          <ul class="rows">
+            {manual.map((g) => (
+              <Row
+                key={g.id}
+                group={g}
+                match={matches[g.id]}
+                value={decisions[g.id] ?? ''}
+                preview={previews[g.id]}
+                busy={busy}
+                onDecide={(key) => onDecide(g.id, key)}
+                onPreview={(target) => onPreview(g.id, target)}
+              />
+            ))}
+          </ul>
+        </section>
+      )}
+      {!toReplace.length && !detached.length && !manual.length && <p>Всё из библиотек WB AID.</p>}
     </>
   );
 }
@@ -157,11 +180,11 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: Row
   const shown = preview && choice && preview.targetKey === choice.target.key ? preview : null;
   // Отвязанный фрейм: вариант набора дизайнер может выбрать сам — смысл варианта (цвет, «повышена/понижена»)
   // по устройству фрейма не виден.
-  const variants = g.detached && owner?.isSet && owner.variants && owner.variants.length > 1 ? owner.variants : null;
+  const variants = (g.detached || g.manual) && owner?.isSet && owner.variants && owner.variants.length > 1 ? owner.variants : null;
   return (
     <li class="group">
       <div class="line">
-        <span class={`tag ${g.origin}`}>{g.detached ? `Отвязан${g.origin === 'ours' ? ' от нашего' : ''}` : ORIGIN_LABEL[g.origin]}</span>
+        <span class={`tag ${g.origin}`}>{g.manual ? 'Ручной' : g.detached ? `Отвязан${g.origin === 'ours' ? ' от нашего' : ''}` : ORIGIN_LABEL[g.origin]}</span>
         <span class="name" title={g.name}>
           {g.name}
         </span>
@@ -176,6 +199,7 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: Row
         <div class="line">
           <span class={`tag ${status.cls}`} title={status.hint}>
             {status.label}
+            {match.score !== undefined ? ` · ${Math.round(match.score * 100)} %` : ''}
           </span>
           {match.alternatives.length ? (
             <select class="grow" value={owner?.key ?? ''} disabled={busy} onChange={(e) => onDecide((e.target as HTMLSelectElement).value)}>

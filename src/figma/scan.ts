@@ -1,4 +1,5 @@
-// Скан макета (этап 1а): экземпляры компонентов и отвязанные фреймы в выделении или на странице.
+// Скан макета: экземпляры компонентов (этап 1), отвязанные фреймы (2а) и ручные фреймы — кандидаты 2б —
+// в выделении или на странице.
 // Только чтение — файл не меняется.
 
 import type { KeyHit } from '../core/library-index';
@@ -10,7 +11,12 @@ export interface ScanResult {
   detached: DetachedFinding[];
   /** Экземпляры, у которых не прочитался главный компонент (удалён, недоступен). */
   unreadable: number;
+  /** Ручные фреймы, прошедшие быстрый отбор (`manual`), — их устройство считает вызывающий. */
+  manual: { node: FrameNode; screen: ScreenRef }[];
 }
+
+/** Больше ручных кандидатов не собираем: снимок устройства каждого стоит времени. */
+const MANUAL_LIMIT = 2000;
 
 const hasChildren = (node: SceneNode): node is SceneNode & ChildrenMixin => 'children' in node;
 
@@ -18,11 +24,20 @@ const hasChildren = (node: SceneNode): node is SceneNode & ChildrenMixin => 'chi
  * Обход в глубину. В чужие и локальные экземпляры не спускаемся: они заменяются целиком, а вложенное
  * поправит проход по вложенным иконкам. В наши — спускаемся: внутри бывают подменённые чужие иконки.
  */
-export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap<string, KeyHit>, progress: (text: string) => void): Promise<ScanResult> {
-  const result: ScanResult = { instances: [], detached: [], unreadable: 0 };
+export async function scanNodes(
+  roots: readonly SceneNode[],
+  lookup: ReadonlyMap<string, KeyHit>,
+  progress: (text: string) => void,
+  /** Быстрый отбор ручных фреймов (размер или имя как у нашего компонента). Нет — ручные не ищутся. */
+  manual?: (node: FrameNode) => boolean,
+): Promise<ScanResult> {
+  const result: ScanResult = { instances: [], detached: [], unreadable: 0, manual: [] };
   let seen = 0;
 
-  const visit = async (node: SceneNode, screen: ScreenRef): Promise<void> => {
+  /** Экран — фрейм верхнего уровня страницы или секции; ручные кандидаты — только внутри экранов (не аннотации на холсте). */
+  const isScreen = (node: SceneNode) => node.type === 'FRAME' && (node.parent?.type === 'PAGE' || node.parent?.type === 'SECTION');
+
+  const visit = async (node: SceneNode, screen: ScreenRef, insideInstance: boolean, insideScreen: boolean): Promise<void> => {
     if (++seen % 500 === 0) progress(`Просмотрено слоёв: ${seen}`);
     // Фрейм, уже заменённый экземпляром и ждущий удаления (см. replace-frame.ts), — не находка.
     if (node.type === 'FRAME' && !node.visible) {
@@ -58,6 +73,7 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
       };
       result.instances.push(finding);
       if (classifyInstance(finding, lookup) !== 'ours') return;
+      insideInstance = true;
     } else if (node.type === 'FRAME' && node.detachedInfo && node.visible) {
       // Скрытый отвязанный фрейм в макете не виден — менять его незачем.
       const info = node.detachedInfo;
@@ -69,13 +85,26 @@ export async function scanNodes(roots: readonly SceneNode[], lookup: ReadonlyMap
         height: node.height,
         detached: info.type === 'library' ? { type: 'library', componentKey: info.componentKey } : { type: 'local', componentId: info.componentId },
       });
+    } else if (
+      manual &&
+      node.type === 'FRAME' &&
+      node.visible &&
+      !insideInstance &&
+      insideScreen &&
+      !isScreen(node) &&
+      node.children.length > 0 &&
+      result.manual.length < MANUAL_LIMIT &&
+      manual(node)
+    ) {
+      result.manual.push({ node, screen });
     }
 
     if (hasChildren(node)) {
-      for (const child of node.children) await visit(child, screen);
+      for (const child of node.children) await visit(child, screen, insideInstance, insideScreen || isScreen(node));
     }
   };
 
-  for (const root of roots) await visit(root, { id: root.id, name: root.name });
+  // Выделен фрагмент внутри экрана — он уже «внутри экрана».
+  for (const root of roots) await visit(root, { id: root.id, name: root.name }, false, root.parent?.type !== 'PAGE' && root.parent?.type !== 'SECTION');
   return result;
 }

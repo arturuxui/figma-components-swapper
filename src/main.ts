@@ -2,7 +2,10 @@
 
 import libraries from '../config/libraries.json';
 import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
-import { buildCandidates, guessProduct, matchByName, type Candidate, type MatchResult } from './core/match';
+import { groupManual, matchManual, type ManualFinding } from './core/manual';
+import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
+import { shapeOf, signature } from './core/structure';
+import { snapshot } from './figma/structure';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
 import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
@@ -28,15 +31,25 @@ void (async () => {
 })();
 
 /** Последний скан: по нему подбираются пары, делается примерка и (этап 1в) замена. */
-let last: { report: ScanReport; byName: Map<string, Candidate[]>; lookup: Map<string, KeyHit>; products: string[]; product: string | null } | null = null;
+let last: {
+  report: ScanReport;
+  byName: Map<string, Candidate[]>;
+  lookup: Map<string, KeyHit>;
+  products: string[];
+  product: string | null;
+  /** Ручные фреймы: id группы → первый фрейм группы (по нему подбирается пара). */
+  manual: Map<string, ManualFinding>;
+} | null = null;
 
 /** Чужие и локальные экземпляры — по ним угадывается продукт макета. */
-const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && g.origin !== 'ours');
+const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
 /** Всё, что можно заменить: чужие и локальные экземпляры (этап 1) и отвязанные фреймы (этап 2). */
 const replaceable = (report: ScanReport) => report.groups.filter((g) => g.detached || g.origin !== 'ours');
 
-/** Пара для группы: отвязанный от нашего — тот самый компонент; остальное — по имени. */
+/** Пара для группы: отвязанный от нашего — тот самый компонент; ручной фрейм — по имени и устройству; остальное — по имени. */
 function matchFor(g: ReportGroup, byName: Map<string, Candidate[]>, lookup: Map<string, KeyHit>, product: string | null): MatchResult {
+  const manual = g.manual ? last?.manual.get(g.id) : undefined;
+  if (manual) return matchManual(manual, byName, product ?? undefined);
   const hit = g.detachedKey ? lookup.get(g.detachedKey) : undefined;
   if (g.detached && g.origin === 'ours' && g.detachedKey && hit) {
     const own: Candidate = { key: g.detachedKey, isSet: false, name: hit.name, libraryId: hit.libraryId, product: hit.product, kind: hit.kind, sizes: [{ width: g.width, height: g.height }] };
@@ -73,10 +86,23 @@ async function scan() {
   const scope = selection.length ? 'selection' : 'page';
   const roots = selection.length ? selection : figma.currentPage.children;
   const lookup = buildLookup(indexes);
-  const found = await scanNodes(roots, lookup, progress);
-  const report = buildReport(found.instances, found.detached, lookup);
   const byName = buildCandidates(indexes);
-  last = { report, byName, lookup, products: [...new Set(indexes.map((i) => i.product))].sort(), product: null };
+  const found = await scanNodes(roots, lookup, progress, manualFilter(byName));
+  const report = buildReport(found.instances, found.detached, lookup);
+  const manual = await manualFindings(found.manual);
+  const firstOf = new Map(manual.map((f) => [f.nodeId, f]));
+  // В отчёт — только ручные фреймы, для которых нашлась пара: остальное — обычная вёрстка.
+  const guess = guessProduct(toReplace(report), byName);
+  const manualGroups = groupManual(manual).filter((g) => matchManual(firstOf.get(g.exampleNodeId)!, byName, guess).status !== 'none');
+  report.groups.push(...manualGroups);
+  last = {
+    report,
+    byName,
+    lookup,
+    products: [...new Set(indexes.map((i) => i.product))].sort(),
+    product: null,
+    manual: new Map(manualGroups.map((g) => [g.id, firstOf.get(g.exampleNodeId)!])),
+  };
   post({
     type: 'scanned',
     report,
@@ -84,7 +110,39 @@ async function scan() {
     scopeName: scope === 'selection' ? `выделено: ${selection.length}` : figma.currentPage.name,
     unreadable: found.unreadable,
   });
-  sendMatches(guessProduct(toReplace(report), byName) ?? last.products[0] ?? null);
+  sendMatches(guess ?? last.products[0] ?? null);
+}
+
+/** Своё оформление фрейма: видимая заливка, обводка или эффект (правило 32 скилла). */
+function hasVisual(node: FrameNode): boolean {
+  const shown = (list: readonly { visible?: boolean }[]) => list.some((p) => p.visible !== false);
+  return (Array.isArray(node.fills) && shown(node.fills)) || shown(node.strokes) || shown(node.effects);
+}
+
+/**
+ * Быстрый отбор ручных фреймов при скане, без снимка устройства: имя как у нашего компонента, или своё
+ * оформление и размер как у одного из наших вариантов (±20 %).
+ */
+function manualFilter(byName: Map<string, Candidate[]>): (node: FrameNode) => boolean {
+  const sizes: { width: number; height: number }[] = [];
+  for (const list of byName.values()) for (const c of list) if (c.kind !== 'icons') sizes.push(...c.sizes);
+  const near = (a: number, b: number) => Math.abs(a - b) <= SIZE_TOLERANCE * Math.max(a, b);
+  return (node) => {
+    if (byName.has(normalizeName(node.name))) return true;
+    if (!hasVisual(node)) return false;
+    return sizes.some((s) => near(node.width, s.width) && near(node.height, s.height));
+  };
+}
+
+async function manualFindings(nodes: { node: FrameNode; screen: { id: string; name: string } }[]): Promise<ManualFinding[]> {
+  const out: ManualFinding[] = [];
+  for (let i = 0; i < nodes.length; i++) {
+    if (i % 50 === 0) progress(`Устройство фреймов: ${i} из ${nodes.length}`);
+    const { node, screen } = nodes[i];
+    const shape = shapeOf(signature(await snapshot(node)));
+    out.push({ nodeId: node.id, name: node.name, screen, width: node.width, height: node.height, shape, visual: hasVisual(node) });
+  }
+  return out;
 }
 
 async function preview(groupId: string, target: { key: string; isSet: boolean }) {

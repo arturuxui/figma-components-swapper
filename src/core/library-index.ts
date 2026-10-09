@@ -6,8 +6,10 @@
 
 export type LibraryKind = 'components' | 'icons';
 
-/** Версия формата: меняется — старые индексы пересобираются. */
-export const INDEX_FORMAT = 'cs-index/1';
+import type { Shape } from './structure';
+
+/** Версия формата: меняется — старые индексы пересобираются. /2 — устройство вариантов (этап 2б). */
+export const INDEX_FORMAT = 'cs-index/2';
 
 export interface IndexEntry {
   /** Ключ компонента для `importComponentByKeyAsync`. */
@@ -22,6 +24,8 @@ export interface IndexEntry {
   height: number;
   /** Страница библиотеки — для подсказок в отчёте. */
   page: string;
+  /** Устройство (без размера — он выше): с чем сравнивать ручные фреймы макета. */
+  shape?: Omit<Shape, 'width' | 'height'>;
 }
 
 export interface IndexSet {

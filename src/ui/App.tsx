@@ -20,7 +20,7 @@ function defaultDecisions(matches: Matches, report: Scanned['report'] | undefine
   for (const [id, m] of Object.entries(matches)) {
     const g = groups.get(id);
     // Отвязанный фрейм заменяется целиком — сразу выбран только отвязанный от нашего; остальное — после примерки.
-    const sure = g?.detached ? g.origin === 'ours' : m.status === 'exact' || m.status === 'stretched';
+    const sure = g?.manual ? false : g?.detached ? g.origin === 'ours' : m.status === 'exact' || m.status === 'stretched';
     out[id] = sure && m.target ? m.target.key : '';
   }
   return out;
