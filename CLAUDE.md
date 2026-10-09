@@ -57,6 +57,8 @@ Components Swapper — продукт проекта AID (`RickOBrian/aid`), в�
 
 - `main` всегда рабочий, напрямую в него не коммитим.
 - Одна задача — одна ветка → PR в `main` → CI зелёный → пользователь сливает через **Squash and merge**.
+- Цепочка PR (второй поверх ветки первого): перед слиянием первого перевести второй на `main` (`gh pr edit N --base main`) —
+  иначе удаление ветки первого закроет второй; после слияния первого — перенести второй на свежий `main` (`git rebase --onto`).
 - `gh` установлен в `C:\Program Files\GitHub CLI` и может отсутствовать в `PATH` Bash:
   `export PATH="$PATH:/c/Program Files/GitHub CLI"`.
 
