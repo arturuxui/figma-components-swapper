@@ -24,6 +24,8 @@ export interface InstanceFinding {
   setName?: string;
   /** Компонент из библиотеки, а не из этого файла. */
   remote: boolean;
+  width: number;
+  height: number;
 }
 
 /** Фрейм, отвязанный от компонента (`detachedInfo`). */
@@ -31,6 +33,8 @@ export interface DetachedFinding {
   nodeId: string;
   name: string;
   screen: ScreenRef;
+  width: number;
+  height: number;
   detached: { type: 'library'; componentKey: string } | { type: 'local'; componentId: string };
 }
 
@@ -47,6 +51,11 @@ export interface ReportGroup {
   /** Первое вхождение — кнопка «Показать». */
   exampleNodeId: string;
   exampleScreen: string;
+  /** Размер первого вхождения — для подбора среди одноимённых по размеру (правило 27). */
+  width: number;
+  height: number;
+  /** Все вхождения — для замены. */
+  nodeIds: string[];
   /** Для наших — из какой библиотеки. */
   libraryId?: string;
 }
@@ -84,14 +93,16 @@ export function buildReport(
   const totals = { ours: 0, foreign: 0, local: 0, detachedOurs: 0, detachedOther: 0 };
   const groups = new Map<string, ReportGroup & { screenIds: Set<string> }>();
 
-  const add = (key: string, base: Omit<ReportGroup, 'count' | 'screens' | 'exampleNodeId' | 'exampleScreen'>, nodeId: string, screen: ScreenRef) => {
+  type Found = { nodeId: string; screen: ScreenRef; width: number; height: number };
+  const add = (key: string, base: Omit<ReportGroup, 'count' | 'screens' | 'exampleNodeId' | 'exampleScreen' | 'width' | 'height' | 'nodeIds'>, f: Found) => {
     let g = groups.get(key);
     if (!g) {
-      g = { ...base, count: 0, screens: 0, exampleNodeId: nodeId, exampleScreen: screen.name, screenIds: new Set() };
+      g = { ...base, count: 0, screens: 0, exampleNodeId: f.nodeId, exampleScreen: f.screen.name, width: f.width, height: f.height, nodeIds: [], screenIds: new Set() };
       groups.set(key, g);
     }
     g.count++;
-    g.screenIds.add(screen.id);
+    g.nodeIds.push(f.nodeId);
+    g.screenIds.add(f.screen.id);
   };
 
   for (const f of instances) {
@@ -99,7 +110,7 @@ export function buildReport(
     totals[origin]++;
     const id = f.setKey ?? f.componentKey;
     const hit = lookup.get(id) ?? lookup.get(f.componentKey);
-    add(`i:${id}`, { id, origin, detached: false, name: f.setName ?? f.componentName, libraryId: hit?.libraryId }, f.nodeId, f.screen);
+    add(`i:${id}`, { id, origin, detached: false, name: f.setName ?? f.componentName, libraryId: hit?.libraryId }, f);
   }
 
   for (const f of detached) {
@@ -108,7 +119,7 @@ export function buildReport(
     else totals.detachedOther++;
     const id = f.detached.type === 'library' ? f.detached.componentKey : f.detached.componentId;
     const hit = f.detached.type === 'library' ? lookup.get(id) : undefined;
-    add(`d:${id}`, { id, origin, detached: true, name: hit?.name ?? f.name, libraryId: hit?.libraryId }, f.nodeId, f.screen);
+    add(`d:${id}`, { id, origin, detached: true, name: hit?.name ?? f.name, libraryId: hit?.libraryId }, f);
   }
 
   const list = [...groups.values()].map(({ screenIds, ...g }) => ({ ...g, screens: screenIds.size }));

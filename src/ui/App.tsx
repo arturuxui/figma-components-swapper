@@ -1,17 +1,21 @@
-// Окно плагина. В файле библиотеки — сбор индекса, в макете — скан и отчёт (этап 1а, только чтение).
+// Окно плагина. В файле библиотеки — сбор индекса, в макете — скан, подбор по имени и примерка (этап 1а–1б).
 
 import { useEffect, useState } from 'preact/hooks';
 import type { IndexSummary } from '../core/library-index';
-import type { Origin, ReportGroup } from '../core/scan-report';
-import type { LibraryInfo, ToPlugin, ToUi } from '../shared/messages';
+import type { LibraryInfo, Matches, ToPlugin, ToUi } from '../shared/messages';
+import { send, type Scanned } from './bridge';
+import { Report, type Decisions, type Preview } from './Report';
 
-const send = (msg: ToPlugin) => parent.postMessage({ pluginMessage: msg }, '*');
-
-type Scanned = Extract<ToUi, { type: 'scanned' }>;
-
-const ORIGIN_LABEL: Record<Origin, string> = { foreign: 'Чужой', local: 'Локальный', ours: 'Наш' };
+type Matched = Extract<ToUi, { type: 'matched' }>;
 
 const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
+
+/** Решение по умолчанию: уверенные пары — заменить, остальное — ждёт дизайнера. */
+function defaultDecisions(matches: Matches): Decisions {
+  const out: Decisions = {};
+  for (const [id, m] of Object.entries(matches)) out[id] = m.status === 'exact' && m.target ? m.target.key : '';
+  return out;
+}
 
 export function App() {
   const [library, setLibrary] = useState<LibraryInfo | null>(null);
@@ -21,6 +25,9 @@ export function App() {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [scanned, setScanned] = useState<Scanned | null>(null);
+  const [matched, setMatched] = useState<Matched | null>(null);
+  const [decisions, setDecisions] = useState<Decisions>({});
+  const [previews, setPreviews] = useState<Record<string, Preview>>({});
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -37,6 +44,17 @@ export function App() {
         setBusy(null);
       } else if (msg.type === 'scanned') {
         setScanned(msg);
+        setPreviews({});
+      } else if (msg.type === 'matched') {
+        setMatched(msg);
+        setDecisions(defaultDecisions(msg.matches));
+        setBusy(null);
+      } else if (msg.type === 'preview') {
+        const url = (bytes: Uint8Array) => URL.createObjectURL(new Blob([bytes as BlobPart], { type: 'image/png' }));
+        setPreviews((all) => ({
+          ...all,
+          [msg.groupId]: { targetKey: msg.targetKey, before: url(msg.before), after: url(msg.after), pick: msg.pick, lost: msg.lost, sizeChanged: msg.sizeChanged },
+        }));
         setBusy(null);
       } else if (msg.type === 'error') {
         setError(msg.message);
@@ -59,11 +77,22 @@ export function App() {
     <>
       <header>
         <h1>Components Swapper</h1>
-        <p>{library ? `Файл библиотеки: ${library.name}` : 'Макет: поиск компонентов не из библиотек WB AID'}</p>
+        <p>{library ? `Файл библиотеки: ${library.name}` : 'Макет: компоненты не из библиотек WB AID → наши'}</p>
       </header>
       <main>
-        <Indexes libraries={libraries} indexes={indexes} current={library} />
-        {!library && scanned && <Report scanned={scanned} />}
+        {(library || !scanned) && <Indexes libraries={libraries} indexes={indexes} current={library} />}
+        {!library && scanned && (
+          <Report
+            scanned={scanned}
+            matched={matched}
+            decisions={decisions}
+            previews={previews}
+            busy={!!busy}
+            onDecide={(id, key) => setDecisions((d) => ({ ...d, [id]: key }))}
+            onProduct={(product) => run({ type: 'set-product', product }, 'Подбираю…')}
+            onPreview={(groupId, target) => run({ type: 'preview', groupId, target }, 'Примерка…')}
+          />
+        )}
         {error && <p class="error">{error}</p>}
       </main>
       <footer>
@@ -72,11 +101,11 @@ export function App() {
             Собрать индекс
           </button>
         ) : (
-          <button class="primary" disabled={!!busy || !indexes.length} onClick={() => run({ type: 'scan' }, 'Сканирую…')}>
-            Сканировать
+          <button class={scanned ? '' : 'primary'} disabled={!!busy || !indexes.length} onClick={() => run({ type: 'scan' }, 'Сканирую…')}>
+            {scanned ? 'Пересканировать' : 'Сканировать'}
           </button>
         )}
-        <span class="muted">{busy ?? (!library ? 'Выделение или вся страница' : '')}</span>
+        <span class="muted">{busy ?? (!library && !scanned ? 'Выделение или вся страница' : '')}</span>
       </footer>
     </>
   );
@@ -106,63 +135,6 @@ function Indexes({ libraries, indexes, current }: { libraries: LibraryInfo[]; in
             </li>
           );
         })}
-      </ul>
-    </section>
-  );
-}
-
-function Report({ scanned }: { scanned: Scanned }) {
-  const { report, scopeName, unreadable } = scanned;
-  const t = report.totals;
-  const toChange = report.groups.filter((g) => g.origin !== 'ours');
-  const detachedOurs = report.groups.filter((g) => g.origin === 'ours' && g.detached);
-  return (
-    <>
-      <p class="muted">Область: {scopeName}</p>
-      <div class="totals">
-        <div class="card">
-          <div class="num">{t.foreign}</div>
-          <div class="muted">чужих экземпляров</div>
-        </div>
-        <div class="card">
-          <div class="num">{t.local}</div>
-          <div class="muted">локальных</div>
-        </div>
-        <div class="card">
-          <div class="num">{t.ours}</div>
-          <div class="muted">наших</div>
-        </div>
-      </div>
-      <p class="muted">
-        Отвязаны от наших компонентов: {t.detachedOurs}, от других: {t.detachedOther}
-        {unreadable ? ` · не прочитано экземпляров: ${unreadable}` : ''}
-      </p>
-      {toChange.length > 0 && <Groups title="Заменить" groups={toChange} />}
-      {detachedOurs.length > 0 && <Groups title="Отвязаны от наших — вернуть экземпляр (этап 2)" groups={detachedOurs} />}
-      {!toChange.length && !detachedOurs.length && <p>Всё из библиотек WB AID.</p>}
-    </>
-  );
-}
-
-function Groups({ title, groups }: { title: string; groups: ReportGroup[] }) {
-  return (
-    <section>
-      <h2>{title}</h2>
-      <ul class="rows">
-        {groups.map((g) => (
-          <li key={`${g.detached ? 'd' : 'i'}:${g.id}`}>
-            <span class={`tag ${g.origin}`}>{g.detached ? 'Отвязан' : ORIGIN_LABEL[g.origin]}</span>
-            <span class="name" title={g.name}>
-              {g.name}
-            </span>
-            <span class="muted">
-              ×{g.count} · экр. {g.screens}
-            </span>
-            <button class="link" title={g.exampleScreen} onClick={() => send({ type: 'focus', nodeId: g.exampleNodeId })}>
-              Показать
-            </button>
-          </li>
-        ))}
       </ul>
     </section>
   );
