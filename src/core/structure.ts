@@ -18,6 +18,8 @@ export interface StructNode {
   width: number;
   height: number;
   layoutMode?: string;
+  /** Слой — маска (`isMask`): так делают текст в кривых под анимацию блика. */
+  isMask?: boolean;
   /** Имя главного компонента (у набора — имя набора) — для экземпляров. */
   mainName?: string;
   children?: StructNode[];
@@ -42,7 +44,16 @@ export interface Signature {
   iconIds: (string | undefined)[];
   /** Видимые вложенные компоненты крупнее иконки — по имени. */
   parts: string[];
+  /** Строки текста в кривых (`isOutlinedText`): место текста есть, самого текста нет. */
+  outlined?: number;
 }
+
+/**
+ * Строка текста, переведённая в кривые и ставшая маской (анимация блика): векторная маска высотой со строку, широкая.
+ * В `bar/slider` на «👑 Main Screen» так сделана надпись «Выйти на линию» — без этого у фрейма 0 текстов.
+ */
+export const OUTLINED_TEXT_MAX_HEIGHT = 40;
+export const isOutlinedText = (n: StructNode) => n.type === 'VECTOR' && !!n.isMask && n.height > 0 && n.height <= OUTLINED_TEXT_MAX_HEIGHT && n.width >= 3 * n.height;
 
 const isIcon = (n: StructNode) => Math.max(n.width, n.height) <= ICON_MAX && (n.type === 'INSTANCE' || n.type === 'FRAME' || n.type === 'GROUP');
 
@@ -55,9 +66,13 @@ function iconName(n: StructNode): string | null {
 }
 
 export function signature(root: StructNode): Signature {
-  const sig: Signature = { width: root.width, height: root.height, layoutMode: root.layoutMode ?? 'NONE', texts: [], icons: [], iconIds: [], parts: [] };
+  const sig: Signature = { width: root.width, height: root.height, layoutMode: root.layoutMode ?? 'NONE', texts: [], icons: [], iconIds: [], parts: [], outlined: 0 };
   const visit = (n: StructNode, isRoot: boolean) => {
     if (!isRoot && n.visible === false) return;
+    if (!isRoot && isOutlinedText(n)) {
+      sig.outlined = (sig.outlined ?? 0) + 1;
+      return;
+    }
     if (!isRoot) {
       const icon = iconName(n);
       if (icon) {
@@ -109,7 +124,8 @@ export const shapeOf = (sig: Signature): Shape => ({
   width: sig.width,
   height: sig.height,
   layoutMode: sig.layoutMode,
-  textCount: sig.texts.length,
+  // Текст в кривых — тоже место текста: по устройству это строка, хотя перенести в неё нечего.
+  textCount: sig.texts.length + (sig.outlined ?? 0),
   iconCount: sig.icons.length,
   parts: [...sig.parts],
 });

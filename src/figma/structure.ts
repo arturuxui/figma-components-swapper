@@ -16,6 +16,7 @@ export async function snapshot(node: SceneNode, depth = 0): Promise<StructNode> 
     layoutMode: 'layoutMode' in node ? node.layoutMode : undefined,
   };
   if (node.type === 'TEXT') out.characters = node.characters;
+  if ('isMask' in node && node.isMask) out.isMask = true;
   if (node.type === 'INSTANCE') {
     try {
       const main = await node.getMainComponentAsync();
