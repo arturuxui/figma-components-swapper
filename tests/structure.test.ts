@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mapIcons, mapTexts, pickByStructure, signature, structureScore, type StructNode } from '../src/core/structure';
+import { isOutlinedText, mapIcons, mapTexts, pickByStructure, shapeOf, signature, structureScore, type StructNode } from '../src/core/structure';
 
 const text = (name: string, characters: string, visible = true): StructNode => ({ type: 'TEXT', name, characters, visible, width: 100, height: 20 });
 const icon = (mainName: string, visible = true): StructNode => ({ type: 'INSTANCE', name: 'icon', mainName, visible, width: 24, height: 24 });
@@ -81,5 +81,25 @@ describe('mapIcons', () => {
   it('меняет только отличающиеся иконки на тех же местах', () => {
     expect(mapIcons(['menu', 'wallet', 'newspaper'], ['menu', 'time_round', 'newspaper'])).toEqual([null, 'wallet', null]);
     expect(mapIcons(['a'], ['b', 'c'])).toEqual(['a', null]);
+  });
+});
+
+describe('текст в кривых (маска под анимацию блика)', () => {
+  // bar/slider с «👑 Main Screen»: надпись «Выйти на линию» — векторная маска 173×16 над градиентом.
+  const outlined: StructNode = { type: 'VECTOR', name: 'title', isMask: true, width: 173, height: 16 };
+  const slider = frame('bar/slider', 328, 80, [frame('text', 196, 52, [outlined, { type: 'RECTANGLE', name: 'Rectangle 211', width: 387, height: 90 }], 'NONE'), icon('arrow_right')], 'NONE');
+
+  it('считается местом текста в устройстве, но не текстом для переноса', () => {
+    const sig = signature(slider);
+    expect(sig.texts).toEqual([]);
+    expect(sig.outlined).toBe(1);
+    expect(shapeOf(sig).textCount).toBe(1);
+  });
+
+  it('не маска, квадратная или высокая векторная фигура — не текст', () => {
+    expect(isOutlinedText({ ...outlined, isMask: false })).toBe(false);
+    expect(isOutlinedText({ ...outlined, width: 24, height: 24 })).toBe(false);
+    expect(isOutlinedText({ ...outlined, width: 300, height: 60 })).toBe(false);
+    expect(isOutlinedText(outlined)).toBe(true);
   });
 });
