@@ -5,12 +5,13 @@
 // Черновик — копия примера, превращённая в компонент с именем на точку (`.Черновик / …` — не публикуется). Внутри
 // него, где можно, — наши компоненты (ручные копии и составные — как в 2б/2в, чужие экземпляры — по имени, как
 // в этапе 1) и экземпляры черновиков вложенных повторов (строка внутри меню — свой черновик). Меняющиеся тексты и
-// иконки — свойства компонента.
+// иконки — свойства компонента. Варианты одного кандидата (шторка с местом в очереди и без) — один набор
+// `.Черновик / …` с осью «Вид».
 
 import type { KeyHit } from '../core/library-index';
 import { matchManual } from '../core/manual';
 import { matchByName, type Candidate } from '../core/match';
-import { PROPOSALS_PAGE, proposalText } from '../core/proposal';
+import { PROPOSALS_PAGE, proposalText, VARIANT_AXIS } from '../core/proposal';
 import { repeatKey, type RepeatGroup } from '../core/repeats';
 import { shapeOf, signature, type StructNode } from '../core/structure';
 import { place, replaceFrame } from './replace-frame';
@@ -162,18 +163,25 @@ async function varyingNodes(draft: ComponentNode, r: RepeatGroup): Promise<{ tex
   };
 }
 
+type Slots = Awaited<ReturnType<typeof varyingNodes>>;
+
 /**
- * Меняющиеся тексты и иконки — свойства компонента (текст и замена экземпляра). Слои, которые после начинки
- * оказались внутри вложенных экземпляров или исчезли, пропускаются: Figma не даёт привязать их к внешнему.
+ * Меняющиеся тексты и иконки — свойства компонента (текст и замена экземпляра). У набора вариантов свойства —
+ * у набора, общие для вариантов по имени (`shared`: имя → id свойства). Слои, которые после начинки оказались
+ * внутри вложенных экземпляров или исчезли, пропускаются: Figma не даёт привязать их к внешнему.
  */
-async function bindProperties(draft: ComponentNode, slots: Awaited<ReturnType<typeof varyingNodes>>): Promise<number> {
+async function bindProperties(owner: ComponentNode | ComponentSetNode, draft: ComponentNode, slots: Slots, shared = new Map<string, string>()): Promise<number> {
   let added = 0;
+  const prop = (name: string, type: 'TEXT' | 'INSTANCE_SWAP', value: string) => {
+    let id = shared.get(name);
+    if (!id) shared.set(name, (id = owner.addComponentProperty(name, type, value)));
+    return id;
+  };
   for (const { id, name, i } of slots.texts) {
     const node = await figma.getNodeByIdAsync(id);
     if (!node || node.removed || node.type !== 'TEXT' || insideInstance(node, draft)) continue;
     try {
-      const prop = draft.addComponentProperty(`${name.replace(/[^\p{L}\p{N} ]/gu, '').trim() || 'Текст'} ${i + 1}`, 'TEXT', node.characters);
-      node.componentPropertyReferences = { characters: prop };
+      node.componentPropertyReferences = { characters: prop(`${name.replace(/[^\p{L}\p{N} ]/gu, '').trim() || 'Текст'} ${i + 1}`, 'TEXT', node.characters) };
       added++;
     } catch {
       // слой нельзя привязать — останется текстом черновика
@@ -185,8 +193,7 @@ async function bindProperties(draft: ComponentNode, slots: Awaited<ReturnType<ty
     const main = await node.getMainComponentAsync();
     if (!main) continue;
     try {
-      const prop = draft.addComponentProperty(`Иконка ${i + 1}`, 'INSTANCE_SWAP', main.id);
-      node.componentPropertyReferences = { mainComponent: prop };
+      node.componentPropertyReferences = { mainComponent: prop(`Иконка ${i + 1}`, 'INSTANCE_SWAP', main.id) };
       added++;
     } catch {
       // иконку нельзя привязать — останется как в примере
@@ -195,7 +202,13 @@ async function bindProperties(draft: ComponentNode, slots: Awaited<ReturnType<ty
   return added;
 }
 
-/** Черновик повтора: копия примера → компонент → начинка → свойства. Пример исчез — null. */
+const description = (r: RepeatGroup, variants: readonly RepeatGroup[] = []) => {
+  const t = proposalText(r, variants);
+  const count = r.count + variants.reduce((n, v) => n + v.count, 0);
+  return `${t.why}. ${t.props}.${t.variants ? ` ${t.variants}.` : ''} Создан Components Swapper по ${count} местам — черновик, не опубликован.`;
+};
+
+/** Черновик повтора: копия примера → компонент → начинка. Свойства — отдельно (у набора — после объединения). */
 async function draftOf(r: RepeatGroup, name: string, parent: FrameNode, inner: ReadonlyMap<string, ComponentNode>, ctx: ProposeContext) {
   const example = await frameById(r.exampleNodeId);
   if (!example) return null;
@@ -205,10 +218,46 @@ async function draftOf(r: RepeatGroup, name: string, parent: FrameNode, inner: R
   draft.name = name;
   const slots = await varyingNodes(draft, r);
   const inside = await fill(draft, inner, ctx);
-  const props = await bindProperties(draft, slots);
-  const t = proposalText(r);
-  draft.description = `${t.why}. ${t.props}. Создан Components Swapper по ${r.count} местам — черновик, не опубликован.`;
-  return { draft, inside, props };
+  draft.description = description(r);
+  return { draft, inside, slots };
+}
+
+/**
+ * Черновик кандидата: один компонент или, если у повтора есть варианты, набор с осью «Вид» (главный первым).
+ * Вариант без примера (удалён после скана) пропускается.
+ */
+async function familyDraft(r: RepeatGroup, variants: readonly RepeatGroup[], name: string, parent: FrameNode, inner: ReadonlyMap<string, ComponentNode>, ctx: ProposeContext) {
+  const members = [r, ...variants];
+  const made: (NonNullable<Awaited<ReturnType<typeof draftOf>>> & { g: RepeatGroup })[] = [];
+  for (const g of members) {
+    const d = await draftOf(g, name, parent, inner, ctx);
+    if (d) made.push({ ...d, g });
+    else if (g === r) return null;
+  }
+  const inside = { ours: made.flatMap((d) => d.inside.ours), drafts: made.flatMap((d) => d.inside.drafts) };
+  if (made.length === 1) {
+    const [d] = made;
+    return { node: d.draft as ComponentNode | ComponentSetNode, inside, props: await bindProperties(d.draft, d.draft, d.slots) };
+  }
+
+  made.forEach((d, i) => (d.draft.name = `${VARIANT_AXIS}=${d.g.variant ?? `Вариант ${i + 1}`}`));
+  const set = figma.combineAsVariants(
+    made.map((d) => d.draft),
+    parent,
+    parent.children.indexOf(made[0].draft),
+  );
+  set.name = name;
+  set.layoutMode = 'HORIZONTAL';
+  set.primaryAxisSizingMode = 'AUTO';
+  set.counterAxisSizingMode = 'AUTO';
+  set.counterAxisAlignItems = 'MIN';
+  set.itemSpacing = 24;
+  set.paddingTop = set.paddingBottom = set.paddingLeft = set.paddingRight = 16;
+  set.description = description(r, made.slice(1).map((d) => d.g));
+  const shared = new Map<string, string>();
+  let props = 0;
+  for (const d of made) props += await bindProperties(set, d.draft, d.slots, shared);
+  return { node: set as ComponentNode | ComponentSetNode, inside, props };
 }
 
 const area = (r: RepeatGroup) => r.width * r.height;
@@ -216,7 +265,9 @@ const uniq = (names: string[]) => [...new Set(names)].join(', ');
 
 async function card(r: RepeatGroup, ctx: ProposeContext): Promise<FrameNode | null> {
   if (!(await frameById(r.exampleNodeId))) return null;
-  const t = proposalText(r);
+  const variants = ctx.all.filter((g) => g.variantOf === r.id);
+  const members = new Set([r.id, ...variants.map((v) => v.id)]);
+  const t = proposalText(r, variants);
   const box = stack('VERTICAL', `Предложение · ${t.title}`, 8);
   box.paddingTop = box.paddingBottom = box.paddingLeft = box.paddingRight = 16;
   box.cornerRadius = 12;
@@ -225,6 +276,7 @@ async function card(r: RepeatGroup, ctx: ProposeContext): Promise<FrameNode | nu
 
   box.appendChild(text(t.title, BOLD, 16));
   box.appendChild(text(t.meta, REGULAR, 12, 0.4));
+  if (t.variants) box.appendChild(text(t.variants, REGULAR, 12, 0.25));
   box.appendChild(text(t.props, REGULAR, 12, 0.25));
   const why = text(t.why, REGULAR, 12, 0.25);
   box.appendChild(why);
@@ -234,17 +286,17 @@ async function card(r: RepeatGroup, ctx: ProposeContext): Promise<FrameNode | nu
   box.appendChild(link);
 
   // Сначала черновики вложенных повторов (от мелких к крупным: крупный может содержать мелкий), потом главный.
-  const nested = ctx.all.filter((g) => g.nestedIn === r.id).sort((a, b) => area(a) - area(b));
+  const nested = ctx.all.filter((g) => !!g.nestedIn && members.has(g.nestedIn)).sort((a, b) => area(a) - area(b));
   const innerRow = stack('HORIZONTAL', 'Вложенные черновики', 16);
   const inner = new Map<string, ComponentNode>();
   for (const g of nested) {
     // Вложенный повтор, который сам — копия нашего компонента, черновиком не делаем: на его месте будет наш.
     const example = await frameById(g.exampleNodeId);
     if (g.likeOurs || !example || oursFor(await snapshot(example, 0, SCREEN_DEPTH), ctx)) continue;
-    const made = await draftOf(g, `${DRAFT} / ${t.title} / ${g.name}`, innerRow, inner, ctx);
-    if (made) inner.set(g.id, made.draft);
+    const made = await familyDraft(g, [], `${DRAFT} / ${t.title} / ${g.name}`, innerRow, inner, ctx);
+    if (made?.node.type === 'COMPONENT') inner.set(g.id, made.node);
   }
-  const main = await draftOf(r, `${DRAFT} / ${t.title}`, box, inner, ctx);
+  const main = await familyDraft(r, variants, `${DRAFT} / ${t.title}`, box, inner, ctx);
   if (!main) {
     box.remove();
     innerRow.remove();
@@ -254,7 +306,7 @@ async function card(r: RepeatGroup, ctx: ProposeContext): Promise<FrameNode | nu
   const notes: string[] = [];
   if (main.inside.ours.length) notes.push(`Внутри — наши: ${uniq(main.inside.ours)}`);
   if (main.inside.drafts.length) notes.push(`вложенные черновики: ${uniq(main.inside.drafts.map((n) => n.split(' / ').pop() ?? n))}`);
-  if (!main.props && (r.varyingAt.texts.length || r.varyingAt.icons.length)) notes.push('меняющиеся тексты и иконки — внутри вложенных компонентов, меняются их свойствами');
+  if (!main.props && [r, ...variants].some((g) => g.varyingAt.texts.length || g.varyingAt.icons.length)) notes.push('меняющиеся тексты и иконки — внутри вложенных компонентов, меняются их свойствами');
   if (notes.length) box.insertChild(box.children.indexOf(link) + 1, text(notes.join('; '), REGULAR, 11, 0.5));
 
   if (inner.size) {
@@ -263,7 +315,7 @@ async function card(r: RepeatGroup, ctx: ProposeContext): Promise<FrameNode | nu
   } else innerRow.remove();
 
   // Обоснование — по ширине черновика (не уже 320), переносится по строкам.
-  why.resize(Math.max(320, main.draft.width), why.height);
+  why.resize(Math.max(320, main.node.width), why.height);
   why.textAutoResize = 'HEIGHT';
   return box;
 }

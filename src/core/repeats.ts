@@ -5,7 +5,8 @@
 // компоненты, раскладка; высота с шагом 4 px), которые не компоненты и не копии наших, и показываем те, что
 // встречаются хотя бы на REPEAT_MIN_SCREENS экранах или в REPEAT_MIN_PLACES местах. Из вложенных повторов
 // (строка и её содержимое) в списке остаётся внешний, вложенный помечается `nestedIn` — для черновика. Различия
-// между копиями (какие тексты и иконки меняются) — будущие свойства компонента.
+// между копиями (какие тексты и иконки меняются) — будущие свойства компонента. Повторы с одним именем и почти
+// одинаковым устройством (шторка с местом в очереди и без) — варианты одного кандидата: в списке один, с осью «Вид».
 
 import { normalizeName, sizeDistance, SIZE_TOLERANCE, type Candidate } from './match';
 import type { ScreenRef } from './scan-report';
@@ -30,6 +31,12 @@ export const SCREEN_PART_WIDTH = 0.9;
  * «✈️ Port queue»), чем новый компонент: такой повтор идёт в конец списка с пометкой.
  */
 export const LIKE_OURS_MIN = 0.85;
+/** Повторы с одним (не стандартным) именем и устройством, похожим хотя бы настолько, — варианты одного кандидата. */
+export const VARIANT_MIN = 0.7;
+/** …и шириной, отличающейся не больше чем на эту долю. */
+export const VARIANT_WIDTH = 0.05;
+/** Имя варианта по отличающемуся тексту — не длиннее. */
+const VARIANT_LABEL_MAX = 32;
 
 export interface RepeatGroup {
   /** `r:` + отпечаток устройства. */
@@ -58,6 +65,10 @@ export interface RepeatGroup {
    * черновике внешнего становится своим черновиком, а внешний получает его экземпляры.
    */
   nestedIn?: string;
+  /** Вариант другого повтора (тот же кандидат, чуть другое устройство) — id главного; в списке не показывается. */
+  variantOf?: string;
+  /** Значение оси «Вид» в наборе вариантов: «Основной» у главного, у вариантов — чем отличается. */
+  variant?: string;
 }
 
 interface Place {
@@ -137,6 +148,59 @@ function closestOurs(shape: Shape, ours: Iterable<Candidate>): { name: string; s
   return best;
 }
 
+/** Стандартное имя Figma («Frame 429», «Group 5») — по нему варианты не связываем: так зовут что угодно. */
+const isDefaultName = (name: string) => /^(frame|group|rectangle|auto layout|component)( \d+)?$/i.test(name.trim());
+
+const label = (prefix: string, t: string) => {
+  const one = t.replace(/[=,\s]+/g, ' ').trim();
+  return `${prefix} «${one.length > VARIANT_LABEL_MAX ? `${one.slice(0, VARIANT_LABEL_MAX - 1).trimEnd()}…` : one}»`;
+};
+
+/** Чем вариант отличается от главного: лишний текст, недостающий текст или размер. */
+export function variantLabel(main: { texts: string[]; width: number; height: number }, v: { texts: string[]; width: number; height: number }): string {
+  const rest = [...main.texts];
+  const extra: string[] = [];
+  for (const t of v.texts) {
+    const i = rest.indexOf(t);
+    if (i >= 0) rest.splice(i, 1);
+    else extra.push(t);
+  }
+  if (extra.length && v.texts.length > main.texts.length) return label('С', extra[0]);
+  if (rest.length && v.texts.length < main.texts.length) return label('Без', rest[0]);
+  if (extra.length) return label('С', extra[0]);
+  return `${Math.round(v.width)}×${Math.round(v.height)}`;
+}
+
+/**
+ * Варианты одного кандидата: невложенные повторы с одним нестандартным именем, шириной ±VARIANT_WIDTH и
+ * устройством, похожим не меньше VARIANT_MIN. Главный — самый частый; остальные получают `variantOf`.
+ */
+function linkVariants(groups: (RepeatGroup & { shape: Shape; exampleTexts: string[] })[]): void {
+  const order = [...groups].filter((g) => !g.nestedIn && !g.likeOurs && !isDefaultName(g.name)).sort((a, b) => b.count - a.count || b.screens - a.screens);
+  for (const main of order) {
+    if (main.variantOf) continue;
+    const family = order.filter(
+      (g) =>
+        g !== main &&
+        !g.variantOf &&
+        !g.variant &&
+        normalizeName(g.name) === normalizeName(main.name) &&
+        Math.abs(g.width - main.width) <= VARIANT_WIDTH * Math.max(g.width, main.width) &&
+        structureScore(main.shape, g.shape) >= VARIANT_MIN,
+    );
+    if (!family.length) continue;
+    main.variant = 'Основной';
+    const used = new Set([main.variant]);
+    for (const g of family) {
+      g.variantOf = main.id;
+      let name = variantLabel({ texts: main.exampleTexts, width: main.width, height: main.height }, { texts: g.exampleTexts, width: g.width, height: g.height });
+      for (let i = 2; used.has(name); i++) name = `${name} ${i}`;
+      used.add(name);
+      g.variant = name;
+    }
+  }
+}
+
 /**
  * Повторы во всех экранах. `exclude` — фреймы, у которых уже есть пара среди наших компонентов (этап 2б): это
  * копии наших, а не новые компоненты. `ours` — наши компоненты продукта: повтор, очень похожий на один из них,
@@ -179,7 +243,7 @@ export function findRepeats(
     for (const p of c.places) if (p.node.id) keptBy.set(p.node.id, c.key);
   }
 
-  return kept
+  const groups = kept
     .map(({ key, places, screens: screenCount, nestedIn }) => {
       const sigs = places.map((p) => signature(p.node));
       const first = places[0];
@@ -200,7 +264,12 @@ export function findRepeats(
         icons: sigs[0].icons.length,
         parts: [...sigs[0].parts],
         ...varying(sigs.map((s) => s.texts.map((t) => t.text)), sigs.map((s) => s.icons)),
+        shape: shapeOf(sigs[0]),
+        exampleTexts: sigs[0].texts.map((t) => t.text),
       };
-    })
-    .sort((a, b) => Number(!!a.nestedIn) - Number(!!b.nestedIn) || Number(!!a.likeOurs) - Number(!!b.likeOurs) || b.count - a.count || b.screens - a.screens || a.name.localeCompare(b.name));
+    });
+  linkVariants(groups);
+  return groups
+    .map(({ shape: _shape, exampleTexts: _texts, ...g }): RepeatGroup => g)
+    .sort((a, b) => Number(!!a.nestedIn || !!a.variantOf) - Number(!!b.nestedIn || !!b.variantOf) || Number(!!a.likeOurs) - Number(!!b.likeOurs) || b.count - a.count || b.screens - a.screens || a.name.localeCompare(b.name));
 }

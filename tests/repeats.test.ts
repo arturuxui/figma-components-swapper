@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { findRepeats } from '../src/core/repeats';
+import { findRepeats, variantLabel } from '../src/core/repeats';
 import type { StructNode } from '../src/core/structure';
 
 let seq = 0;
@@ -89,5 +89,35 @@ describe('findRepeats — часть экрана и похожие на наш�
       ['trip row', undefined],
       ['Frame 500', 'tariff'],
     ]);
+  });
+
+  it('шторка с местом в очереди и без — варианты одного кандидата', () => {
+    const sheet = (queue: boolean) =>
+      frame('Bottom Sheet', 360, queue ? 326 : 340, [text('Ожидайте заказ'), text('10–15 мин'), ...(queue ? [text('Вы 5-й в очереди')] : []), icon('close')], { layoutMode: 'VERTICAL' });
+    const screens = [1, 2, 3, 4].map((i) => screen(`S${i}`, [sheet(false)])).concat([5, 6, 7].map((i) => screen(`Q${i}`, [sheet(true)])));
+    const r = findRepeats(screens);
+    const main = r.find((g) => g.count === 4)!;
+    const v = r.find((g) => g.count === 3)!;
+    expect(main).toMatchObject({ variant: 'Основной' });
+    expect(main.variantOf).toBeUndefined();
+    expect(v).toMatchObject({ variantOf: main.id, variant: 'С «Вы 5-й в очереди»' });
+    // варианты — в конце списка, вместе со вложенными
+    expect(r[0]).toBe(main);
+  });
+
+  it('стандартные имена («Frame 12») в варианты не связываются', () => {
+    const f = (extra: boolean) => frame('Frame 12', 200, extra ? 80 : 60, [text('a'), icon('x'), ...(extra ? [text('b')] : [])], { layoutMode: 'VERTICAL' });
+    const screens = [1, 2, 3].map((i) => screen(`A${i}`, [f(false)])).concat([1, 2, 3].map((i) => screen(`B${i}`, [f(true)])));
+    expect(findRepeats(screens).some((g) => g.variantOf)).toBe(false);
+  });
+});
+
+describe('variantLabel', () => {
+  const box = (texts: string[], width = 360, height = 100) => ({ texts, width, height });
+  it('лишний текст, недостающий текст, только размер', () => {
+    expect(variantLabel(box(['a', 'b']), box(['a', 'b', 'Место в очереди']))).toBe('С «Место в очереди»');
+    expect(variantLabel(box(['a', 'b']), box(['a']))).toBe('Без «b»');
+    expect(variantLabel(box(['a']), box(['a'], 360, 120))).toBe('360×120');
+    expect(variantLabel(box([]), box(['Очень длинный текст, который не влезет в имя варианта']))).toBe('С «Очень длинный текст который не…»');
   });
 });
