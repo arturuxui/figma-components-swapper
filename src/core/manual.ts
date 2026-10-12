@@ -21,6 +21,13 @@ export const SIMILAR_MARGIN = 0.05;
  * с одним текстом» похожа на всё сразу. На «📍 Order» так совпали подписи-аннотации «Скролл» с кнопкой `default`.
  */
 export const SIMILAR_MIN_ELEMENTS = 2;
+/**
+ * Ничья по устройству (отрыв меньше SIMILAR_MARGIN) — решает размер: кандидат почти того же размера (не больше
+ * 5 % по стороне), а остальные — заметно дальше (ещё хотя бы на 10 %). На «✈️ Port queue» так карточки тарифа
+ * 158×148 уходили в ничью между `tariff` 158×148 и `review` 128×160.
+ */
+export const TIE_SIZE_EXACT = 0.05;
+export const TIE_SIZE_GAP = 0.1;
 
 export interface ManualFinding {
   nodeId: string;
@@ -45,7 +52,8 @@ const best = (f: ManualFinding, c: Candidate) => Math.max(-1, ...fitting(c, f).m
  * Пара для ручного фрейма:
  * - `named` — наш компонент с тем же именем, подходящий по размеру, устройство похоже ≥ NAMED_MIN;
  * - `similar` — имени нет, но у фрейма своё оформление и устройство похоже на один наш компонент ≥ SIMILAR_MIN
- *   с отрывом от следующего ≥ SIMILAR_MARGIN; иконки не предлагаются (это этап 3);
+ *   с отрывом от следующего ≥ SIMILAR_MARGIN, а при ничьей — заметно ближе всех по размеру (TIE_SIZE_*);
+ *   иконки не предлагаются (это этап 3);
  * - иначе `composite` — наш составной компонент с теми же вложенными компонентами (этап 2в, composite.ts), или `none`.
  */
 export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candidate[]>, product?: string): MatchResult {
@@ -69,10 +77,21 @@ export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candid
   }
   all.sort((a, b) => b.s - a.s);
   const [first, second] = all;
+  const alternatives = all.filter((x) => x.s >= SIMILAR_MIN - SIMILAR_MARGIN).map((x) => x.c);
   if (first && first.s >= SIMILAR_MIN && (!second || first.s - second.s >= SIMILAR_MARGIN)) {
-    return { status: 'similar', target: first.c, alternatives: all.filter((x) => x.s >= SIMILAR_MIN - SIMILAR_MARGIN).map((x) => x.c), score: first.s };
+    return { status: 'similar', target: first.c, alternatives, score: first.s };
   }
+  const tie = first ? breakTieBySize(f, all.filter((x) => first.s - x.s < SIMILAR_MARGIN)) : null;
+  if (tie) return { status: 'similar', target: tie.c, alternatives: [tie.c, ...alternatives.filter((c) => c !== tie.c)], score: tie.s };
   return matchComposite(f, byName, product);
+}
+
+/** Из почти одинаково похожих — тот, что почти того же размера, если остальные заметно дальше по размеру. */
+function breakTieBySize(f: ManualFinding, contenders: { c: Candidate; s: number }[]): { c: Candidate; s: number } | null {
+  const bySize = contenders.map((x) => ({ ...x, d: sizeDistance(f, x.c) })).sort((a, b) => a.d - b.d);
+  const [near, next] = bySize;
+  if (!near || near.s < SIMILAR_MIN || near.d > TIE_SIZE_EXACT) return null;
+  return !next || next.d - near.d >= TIE_SIZE_GAP ? near : null;
 }
 
 /**

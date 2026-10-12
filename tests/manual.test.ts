@@ -95,3 +95,30 @@ describe('groupManual', () => {
     expect(groups.map((g) => g.nodeIds)).toEqual([['n-balance panel-328', 'same'], ['no-icons']]);
   });
 });
+
+describe('matchManual — ничья по устройству решается размером', () => {
+  // Карточка тарифа и отзыв устроены одинаково (текст + иконка, без раскладки), размеры разные.
+  const cards: LibraryIndex = {
+    ...index,
+    entries: [
+      { key: 'tariff', name: 'tariff', width: 158, height: 148, page: 'Cards', shape: shape(1, 1, 'NONE') },
+      { key: 'review', name: 'review', width: 128, height: 160, page: 'Cards', shape: shape(1, 1, 'NONE') },
+    ],
+    sets: [],
+  };
+  const cardsByName = buildCandidates([cards]);
+
+  it('карточка 158×148 — tariff того же размера, а не review 128×160 (Port queue: Frame 498)', () => {
+    const m = matchManual(finding('Frame 498', 158, 148, shape(1, 1, 'NONE')), cardsByName, 'driver');
+    expect(m).toMatchObject({ status: 'similar', target: { key: 'tariff' } });
+    expect(m.alternatives.map((c) => c.key)).toEqual(['tariff', 'review']);
+  });
+
+  it('размер посередине — оба далеко, ничья остаётся: не пара', () => {
+    expect(matchManual(finding('Frame 1', 143, 154, shape(1, 1, 'NONE')), cardsByName, 'driver').status).toBe('none');
+  });
+
+  it('размер почти тот же у обоих — ничья остаётся (двойники info и subtitle)', () => {
+    expect(matchManual(finding('Frame 2', 360, 56, shape(2, 1)), byName, 'driver').status).toBe('none');
+  });
+});
