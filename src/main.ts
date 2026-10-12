@@ -5,7 +5,8 @@ import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type Libra
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
 import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
 import { shapeOf, signature } from './core/structure';
-import { findRepeats } from './core/repeats';
+import { findRepeats, type RepeatGroup } from './core/repeats';
+import { propose } from './figma/propose';
 import { hasVisual, snapshot } from './figma/structure';
 import { screenTrees } from './figma/repeats';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
@@ -41,6 +42,8 @@ let last: {
   product: string | null;
   /** Ручные фреймы: id группы → первый фрейм группы (по нему подбирается пара). */
   manual: Map<string, ManualFinding>;
+  /** Повторы — кандидаты в новые компоненты (этап 4). */
+  repeats: RepeatGroup[];
 } | null = null;
 
 /** Чужие и локальные экземпляры — по ним угадывается продукт макета. */
@@ -107,6 +110,7 @@ async function scan() {
     products: [...new Set(indexes.map((i) => i.product))].sort(),
     product: null,
     manual: new Map(manualGroups.map((g) => [g.id, firstOf.get(g.exampleNodeId)!])),
+    repeats,
   };
   post({
     type: 'scanned',
@@ -176,6 +180,26 @@ async function focus(nodeId: string) {
   figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
 }
 
+/** Черновики выбранных повторов на странице предложений; страница открывается, блок выделяется. */
+async function proposeDrafts(ids: string[]) {
+  const chosen = (last?.repeats ?? []).filter((r) => ids.includes(r.id));
+  if (!chosen.length) throw new Error('Не выбрано ни одного повтора — пересканируйте макет.');
+  const result = await propose(chosen, { all: last!.repeats, byName: last!.byName, lookup: last!.lookup, product: last!.product ?? undefined }, progress);
+  try {
+    figma.commitUndo();
+  } catch {
+    // нет API — страницу можно удалить руками
+  }
+  const page = (await figma.getNodeByIdAsync(result.pageId)) as PageNode;
+  const block = await figma.getNodeByIdAsync(result.containerId);
+  if (result.drafts && block) {
+    await figma.setCurrentPageAsync(page);
+    figma.currentPage.selection = [block as SceneNode];
+    figma.viewport.scrollAndZoomIntoView([block as SceneNode]);
+  }
+  post({ type: 'proposed', pageName: page.name, drafts: result.drafts, missing: result.missing });
+}
+
 /** Выделить все места повтора (на текущей странице). */
 async function select(nodeIds: string[]) {
   const nodes: SceneNode[] = [];
@@ -200,6 +224,7 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'undo') post({ type: 'undone', ...undoSwaps(progress) });
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'select') await select(msg.nodeIds);
+    else if (msg.type === 'propose') await proposeDrafts(msg.ids);
     else if (msg.type === 'open-library') figma.openExternal(msg.url);
   } catch (e) {
     post({ type: 'error', message: e instanceof Error ? e.message : String(e) });

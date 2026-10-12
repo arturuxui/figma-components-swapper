@@ -4,8 +4,8 @@
 // Ищем во всех экранах фреймы одного устройства (одинаковое дерево видимых слоёв: тексты, иконки, вложенные
 // компоненты, раскладка; высота с шагом 4 px), которые не компоненты и не копии наших, и показываем те, что
 // встречаются хотя бы на REPEAT_MIN_SCREENS экранах или в REPEAT_MIN_PLACES местах. Из вложенных повторов
-// (строка и её содержимое) остаётся внешний. Различия между копиями (какие тексты и иконки меняются) — будущие
-// свойства компонента.
+// (строка и её содержимое) в списке остаётся внешний, вложенный помечается `nestedIn` — для черновика. Различия
+// между копиями (какие тексты и иконки меняются) — будущие свойства компонента.
 
 import { normalizeName, sizeDistance, SIZE_TOLERANCE, type Candidate } from './match';
 import type { ScreenRef } from './scan-report';
@@ -49,8 +49,15 @@ export interface RepeatGroup {
   parts: string[];
   /** Сколько текстов и иконок отличаются между копиями — кандидаты в свойства компонента. */
   varying: { texts: number; icons: number };
+  /** Номера меняющихся текстов и иконок (порядок — как в `signature`): по ним черновик получает свойства. */
+  varyingAt: { texts: number[]; icons: number[] };
   /** Похож на наш компонент (≥ LIKE_OURS_MIN) — его имя: возможно, копия нашего, а не новый компонент. */
   likeOurs?: string;
+  /**
+   * Вложенный повтор (строка внутри меню): лежит внутри мест повтора с этим id. В списке не показывается, но в
+   * черновике внешнего становится своим черновиком, а внешний получает его экземпляры.
+   */
+  nestedIn?: string;
 }
 
 interface Place {
@@ -62,6 +69,9 @@ interface Place {
 
 const isIconNode = (n: StructNode) => Math.max(n.width, n.height) <= ICON_MAX && (n.type === 'INSTANCE' || n.type === 'FRAME' || n.type === 'GROUP');
 const isContainer = (n: StructNode) => n.type === 'FRAME' || n.type === 'GROUP';
+
+/** Ключ повтора для фрейма: отпечаток устройства и высота с шагом 4 px. `RepeatGroup.id` — `r:` + ключ. */
+export const repeatKey = (n: StructNode) => `${fingerprint(n)}|h${Math.round(n.height / 4)}`;
 
 /** Отпечаток устройства видимого поддерева: без самих текстов, имён слоёв и ширины (тексты её меняют). */
 function fingerprint(n: StructNode): string {
@@ -99,13 +109,18 @@ const mostCommon = (names: string[]) => {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
 };
 
-/** Сколько позиций списков отличаются между копиями (списки одной длины — устройство одно). */
-function varyingSlots(lists: string[][]): number {
+/** Позиции списков, которые отличаются между копиями (списки одной длины — устройство одно). */
+function varyingSlots(lists: string[][]): number[] {
   const len = Math.min(...lists.map((l) => l.length));
-  let n = 0;
-  for (let i = 0; i < len; i++) if (new Set(lists.map((l) => l[i])).size > 1) n++;
-  return n;
+  const out: number[] = [];
+  for (let i = 0; i < len; i++) if (new Set(lists.map((l) => l[i])).size > 1) out.push(i);
+  return out;
 }
+
+const varying = (texts: string[][], icons: string[][]) => {
+  const at = { texts: varyingSlots(texts), icons: varyingSlots(icons) };
+  return { varying: { texts: at.texts.length, icons: at.icons.length }, varyingAt: at };
+};
 
 /** Самый похожий наш компонент (размер ±20 %, иконки не в счёт) и похожесть. */
 function closestOurs(shape: Shape, ours: Iterable<Candidate>): { name: string; score: number } | null {
@@ -137,7 +152,7 @@ export function findRepeats(
     for (const p of collect(tree, ref, exclude)) {
       const sig = signature(p.node);
       if (sig.texts.length + (sig.outlined ?? 0) + sig.icons.length + sig.parts.length < REPEAT_MIN_ELEMENTS) continue;
-      const key = `${fingerprint(p.node)}|h${Math.round(p.node.height / 4)}`;
+      const key = repeatKey(p.node);
       const list = byKey.get(key) ?? [];
       list.push(p);
       byKey.set(key, list);
@@ -150,22 +165,28 @@ export function findRepeats(
     // Внешние раньше внутренних: по площади примера.
     .sort((a, b) => b.places[0].node.width * b.places[0].node.height - a.places[0].node.width * a.places[0].node.height);
 
-  const kept: typeof clusters = [];
-  const keptIds = new Set<string>();
+  const kept: (typeof clusters[number] & { nestedIn?: string })[] = [];
+  /** Место внешнего повтора → его ключ. */
+  const keptBy = new Map<string, string>();
   for (const c of clusters) {
-    const inside = c.places.filter((p) => p.ancestors.some((id) => keptIds.has(id))).length;
-    if (inside >= NESTED_SHARE * c.places.length) continue;
+    // Ближайший внешний повтор для каждого места; вложенный — если таких мест не меньше NESTED_SHARE.
+    const outer = c.places.map((p) => [...p.ancestors].reverse().map((id) => keptBy.get(id)).find(Boolean)).filter((k): k is string => !!k);
+    if (outer.length >= NESTED_SHARE * c.places.length) {
+      kept.push({ ...c, nestedIn: `r:${mostCommon(outer)}` });
+      continue;
+    }
     kept.push(c);
-    for (const p of c.places) if (p.node.id) keptIds.add(p.node.id);
+    for (const p of c.places) if (p.node.id) keptBy.set(p.node.id, c.key);
   }
 
   return kept
-    .map(({ key, places, screens: screenCount }) => {
+    .map(({ key, places, screens: screenCount, nestedIn }) => {
       const sigs = places.map((p) => signature(p.node));
       const first = places[0];
       const like = closestOurs(shapeOf(sigs[0]), ours);
       return {
         likeOurs: like && like.score >= LIKE_OURS_MIN ? like.name : undefined,
+        nestedIn,
         id: `r:${key}`,
         name: mostCommon(places.map((p) => p.node.name)),
         count: places.length,
@@ -178,8 +199,8 @@ export function findRepeats(
         texts: sigs[0].texts.length + (sigs[0].outlined ?? 0),
         icons: sigs[0].icons.length,
         parts: [...sigs[0].parts],
-        varying: { texts: varyingSlots(sigs.map((s) => s.texts.map((t) => t.text))), icons: varyingSlots(sigs.map((s) => s.icons)) },
+        ...varying(sigs.map((s) => s.texts.map((t) => t.text)), sigs.map((s) => s.icons)),
       };
     })
-    .sort((a, b) => Number(!!a.likeOurs) - Number(!!b.likeOurs) || b.count - a.count || b.screens - a.screens || a.name.localeCompare(b.name));
+    .sort((a, b) => Number(!!a.nestedIn) - Number(!!b.nestedIn) || Number(!!a.likeOurs) - Number(!!b.likeOurs) || b.count - a.count || b.screens - a.screens || a.name.localeCompare(b.name));
 }

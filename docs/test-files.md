@@ -10,6 +10,7 @@
 «Components Swapper · …» (решение инженера 2026-10-09); после опытов страницу удаляем по просьбе инженера.
 Сейчас в ✅ Driver App • Order есть «Components Swapper · Order (full run)» (`8235:2996`); «Sandbox» удалена.
 В 🚕 New Driver DEV 🚀 страница опыта 2в «Components Swapper · Composite» удалена; там же измерена полнота 2б.
+Там же — «Components Swapper · Предложения» (`4483:23144`): черновики этапа 4, оставлены для проверки инженером.
 
 ## Driver
 

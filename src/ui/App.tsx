@@ -10,6 +10,7 @@ import { send, type Scanned } from './bridge';
 import { Report, type Decisions, type Preview } from './Report';
 
 type Matched = Extract<ToUi, { type: 'matched' }>;
+type Proposed = Extract<ToUi, { type: 'proposed' }>;
 
 const date = (iso: string) => new Date(iso).toLocaleString('ru-RU', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
 
@@ -41,6 +42,7 @@ export function App() {
   const scannedRef = useRef<Scanned | null>(null);
   const [applied, setApplied] = useState<ApplyResult | null>(null);
   const [undone, setUndone] = useState<{ restored: number; failed: number } | null>(null);
+  const [proposed, setProposed] = useState<Proposed | null>(null);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -61,6 +63,7 @@ export function App() {
         setPreviews({});
         setApplied(null);
         setUndone(null);
+        setProposed(null);
       } else if (msg.type === 'matched') {
         setMatched(msg);
         setDecisions(defaultDecisions(msg.matches, scannedRef.current?.report));
@@ -84,6 +87,9 @@ export function App() {
         setBusy(null);
       } else if (msg.type === 'applied') {
         setApplied(msg.result);
+        setBusy(null);
+      } else if (msg.type === 'proposed') {
+        setProposed(msg);
         setBusy(null);
       } else if (msg.type === 'undone') {
         setUndone({ restored: msg.restored, failed: msg.failed });
@@ -137,6 +143,8 @@ export function App() {
             onDecide={(id, key) => setDecisions((d) => ({ ...d, [id]: key }))}
             onProduct={(product) => run({ type: 'set-product', product }, 'Подбираю…')}
             onPreview={(groupId, target) => run({ type: 'preview', groupId, target }, 'Примерка…')}
+            proposed={proposed}
+            onPropose={(ids) => run({ type: 'propose', ids }, 'Черновики…')}
           />
         )}
         {error && <p class="error">{error}</p>}
