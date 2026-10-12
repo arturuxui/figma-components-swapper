@@ -1,6 +1,7 @@
 // Отчёт скана с подбором по имени: что заменить, на что, примерка «Было / Будет».
 
 import { resolveChoice, type Candidate, type MatchStatus } from '../core/match';
+import { REPEAT_MIN_PLACES, REPEAT_MIN_SCREENS, type RepeatGroup } from '../core/repeats';
 import type { Origin, ReportGroup } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
 import type { Matches, TargetRef, ToUi } from '../shared/messages';
@@ -50,7 +51,7 @@ interface Props {
 }
 
 export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview }: Props) {
-  const { report, scopeName, unreadable } = scanned;
+  const { report, scopeName, unreadable, repeats } = scanned;
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
@@ -156,7 +157,53 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
         </section>
       )}
       {!toReplace.length && !detached.length && !manual.length && <p>Всё из библиотек WB AID.</p>}
+      {repeats.length > 0 && (
+        <section>
+          <h2>Повторы — кандидаты в новые компоненты · {repeats.length}</h2>
+          <p class="muted">
+            Фреймы одного устройства, которые не компоненты и не копии наших, — на {REPEAT_MIN_SCREENS}+ экранах или в {REPEAT_MIN_PLACES}+ местах.
+            «Меняется» — тексты и иконки, которые отличаются между копиями: будущие свойства компонента. Макет не меняется.
+          </p>
+          <ul class="rows">
+            {repeats.map((r) => (
+              <RepeatRow key={r.id} repeat={r} />
+            ))}
+          </ul>
+        </section>
+      )}
     </>
+  );
+}
+
+function RepeatRow({ repeat: r }: { repeat: RepeatGroup }) {
+  const what = [
+    r.texts && `текстов ${r.texts}${r.varying.texts ? ` (меняется ${r.varying.texts})` : ''}`,
+    r.icons && `иконок ${r.icons}${r.varying.icons ? ` (меняется ${r.varying.icons})` : ''}`,
+    r.parts.length && `компоненты: ${[...new Set(r.parts)].join(', ')}`,
+  ].filter(Boolean);
+  return (
+    <li class="group">
+      <div class="line">
+        <span class={`tag ${r.likeOurs ? 'ours' : 'foreign'}`} title={r.likeOurs ? `Устроен почти как наш «${r.likeOurs}» — возможно, это его копия` : undefined}>
+          {r.likeOurs ? `Похож на ${r.likeOurs}` : 'Повтор'}
+        </span>
+        <span class="name" title={r.name}>
+          {r.name}
+        </span>
+        <span class="muted">
+          ×{r.count} · экр. {r.screens}
+        </span>
+        <button class="link" title={r.exampleScreen} onClick={() => send({ type: 'focus', nodeId: r.exampleNodeId })}>
+          Показать
+        </button>
+        <button class="link" onClick={() => send({ type: 'select', nodeIds: r.nodeIds })}>
+          Выделить все
+        </button>
+      </div>
+      <div class="muted">
+        {Math.round(r.width)}×{Math.round(r.height)} · {what.join(' · ') || 'без текстов и иконок'}
+      </div>
+    </li>
   );
 }
 

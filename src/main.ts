@@ -5,7 +5,9 @@ import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type Libra
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
 import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
 import { shapeOf, signature } from './core/structure';
-import { snapshot } from './figma/structure';
+import { findRepeats } from './core/repeats';
+import { hasVisual, snapshot } from './figma/structure';
+import { screenTrees } from './figma/repeats';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
 import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
@@ -95,6 +97,9 @@ async function scan() {
   const guess = guessProduct(toReplace(report), byName);
   const manualGroups = groupManual(manual).filter((g) => matchManual(firstOf.get(g.exampleNodeId)!, byName, guess).status !== 'none');
   report.groups.push(...manualGroups);
+  // Этап 4: повторы, которые не наши компоненты и не их копии, — кандидаты в новые компоненты.
+  const ours = [...byName.values()].flat().filter((c) => !guess || c.product === guess);
+  const repeats = findRepeats(await screenTrees(roots, progress), new Set(manualGroups.flatMap((g) => g.nodeIds)), ours);
   last = {
     report,
     byName,
@@ -109,14 +114,9 @@ async function scan() {
     scope,
     scopeName: scope === 'selection' ? `выделено: ${selection.length}` : figma.currentPage.name,
     unreadable: found.unreadable,
+    repeats,
   });
   sendMatches(guess ?? last.products[0] ?? null);
-}
-
-/** Своё оформление фрейма: видимая заливка, обводка или эффект (правило 32 скилла). */
-function hasVisual(node: FrameNode): boolean {
-  const shown = (list: readonly { visible?: boolean }[]) => list.some((p) => p.visible !== false);
-  return (Array.isArray(node.fills) && shown(node.fills)) || shown(node.strokes) || shown(node.effects);
 }
 
 /**
@@ -176,6 +176,18 @@ async function focus(nodeId: string) {
   figma.viewport.scrollAndZoomIntoView([node as SceneNode]);
 }
 
+/** Выделить все места повтора (на текущей странице). */
+async function select(nodeIds: string[]) {
+  const nodes: SceneNode[] = [];
+  for (const id of nodeIds) {
+    const n = await figma.getNodeByIdAsync(id);
+    if (n && n.type !== 'DOCUMENT' && n.type !== 'PAGE' && !n.removed) nodes.push(n as SceneNode);
+  }
+  if (!nodes.length) throw new Error('Слои не найдены — пересканируйте макет.');
+  figma.currentPage.selection = nodes;
+  figma.viewport.scrollAndZoomIntoView(nodes);
+}
+
 figma.on('close', finalizeFrames);
 
 figma.ui.onmessage = async (msg: ToPlugin) => {
@@ -187,6 +199,7 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'apply') await apply(msg.choices);
     else if (msg.type === 'undo') post({ type: 'undone', ...undoSwaps(progress) });
     else if (msg.type === 'focus') await focus(msg.nodeId);
+    else if (msg.type === 'select') await select(msg.nodeIds);
     else if (msg.type === 'open-library') figma.openExternal(msg.url);
   } catch (e) {
     post({ type: 'error', message: e instanceof Error ? e.message : String(e) });

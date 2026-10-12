@@ -20,6 +20,10 @@ export interface StructNode {
   layoutMode?: string;
   /** Слой — маска (`isMask`): так делают текст в кривых под анимацию блика. */
   isMask?: boolean;
+  /** Своё оформление: видимая заливка, обводка или эффект (этап 4 — повторы). */
+  visual?: boolean;
+  /** Фрейм отвязан от компонента (`detachedInfo`) — его забирает этап 2а. */
+  detached?: boolean;
   /** Имя главного компонента (у набора — имя набора) — для экземпляров. */
   mainName?: string;
   children?: StructNode[];
