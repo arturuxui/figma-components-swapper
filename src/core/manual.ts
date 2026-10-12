@@ -49,8 +49,25 @@ function fitting(c: Candidate, size: { width: number; height: number }): Shape[]
 const best = (f: ManualFinding, c: Candidate) => Math.max(-1, ...fitting(c, f).map((s) => structureScore(f.shape, s)));
 
 /**
+ * Для «Имя и устройство»: горизонтальный auto layout (бейдж, плашка, кнопка) растёт по тексту, поэтому у фрейма
+ * с тем же именем ширину не сравниваем — только высоту (±20 %), и устройство считаем как при той же ширине. Оба —
+ * горизонтальные. На «✈️ Port queue» так терялись бейджи `medium/color` 79–96 px при нашем 189 px.
+ */
+function bestNamed(f: ManualFinding, c: Candidate): number {
+  let score = best(f, c);
+  if (f.shape.layoutMode !== 'HORIZONTAL') return score;
+  const shapes = c.isSet ? (c.variants ?? []).map((v) => v.shape) : [c.shape];
+  for (const s of shapes) {
+    if (!s || s.layoutMode !== 'HORIZONTAL' || sizeDistance({ width: s.width, height: f.height }, { ...c, sizes: [s] }) > SIZE_TOLERANCE) continue;
+    score = Math.max(score, structureScore({ ...f.shape, width: s.width }, s));
+  }
+  return score;
+}
+
+/**
  * Пара для ручного фрейма:
- * - `named` — наш компонент с тем же именем, подходящий по размеру, устройство похоже ≥ NAMED_MIN;
+ * - `named` — наш компонент с тем же именем, подходящий по размеру (у горизонтальных — по высоте), устройство
+ *   похоже ≥ NAMED_MIN;
  * - `similar` — имени нет, но у фрейма своё оформление и устройство похоже на один наш компонент ≥ SIMILAR_MIN
  *   с отрывом от следующего ≥ SIMILAR_MARGIN, а при ничьей — заметно ближе всех по размеру (TIE_SIZE_*);
  *   иконки не предлагаются (это этап 3);
@@ -61,7 +78,7 @@ export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candid
 
   const named = (byName.get(normalizeName(f.name)) ?? [])
     .filter(inProduct)
-    .map((c) => ({ c, s: best(f, c) }))
+    .map((c) => ({ c, s: bestNamed(f, c) }))
     .filter((x) => x.s >= NAMED_MIN)
     .sort((a, b) => b.s - a.s);
   if (named.length) return { status: 'named', target: named[0].c, alternatives: named.map((x) => x.c), score: named[0].s };

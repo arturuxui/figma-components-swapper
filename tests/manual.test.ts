@@ -122,3 +122,29 @@ describe('matchManual — ничья по устройству решается 
     expect(matchManual(finding('Frame 2', 360, 56, shape(2, 1)), byName, 'driver').status).toBe('none');
   });
 });
+
+describe('matchManual — горизонтальный компонент по имени растёт по тексту', () => {
+  const badges: LibraryIndex = {
+    ...index,
+    entries: [{ key: 'mc', name: 'medium/color', width: 189, height: 40, page: 'Badges', shape: shape(1, 1, 'HORIZONTAL') }],
+    sets: [],
+  };
+  const badgesByName = buildCandidates([badges]);
+
+  it('бейдж с тем же именем уже нашего (86×44 против 189×40) — named (Port queue: medium/color)', () => {
+    const m = matchManual(finding('medium/color', 86, 44, shape(1, 0, 'HORIZONTAL')), badgesByName, 'driver');
+    expect(m).toMatchObject({ status: 'named', target: { key: 'mc' } });
+  });
+
+  it('высота другая — не пара', () => {
+    expect(matchManual(finding('medium/color', 86, 64, shape(1, 0, 'HORIZONTAL')), badgesByName, 'driver').status).toBe('none');
+  });
+
+  it('фрейм не горизонтальный — ширина сравнивается как раньше', () => {
+    expect(matchManual(finding('medium/color', 86, 44, shape(1, 0, 'NONE')), badgesByName, 'driver').status).toBe('none');
+  });
+
+  it('без имени ширина по-прежнему важна — не similar', () => {
+    expect(matchManual(finding('Frame 3', 86, 44, shape(1, 1, 'HORIZONTAL')), badgesByName, 'driver').status).toBe('none');
+  });
+});
