@@ -15,6 +15,8 @@ export interface ProposalText {
   props: string;
   /** Почему это кандидат. */
   why: string;
+  /** Варианты одного кандидата — «Вид = …: ×мест · размер»; нет вариантов — undefined. */
+  variants?: string;
 }
 
 const plural = (n: number, one: string, few: string, many: string) => {
@@ -25,7 +27,10 @@ const plural = (n: number, one: string, few: string, many: string) => {
   return many;
 };
 
-export function proposalText(r: RepeatGroup): ProposalText {
+/** Ось вариантов в наборе-черновике. */
+export const VARIANT_AXIS = 'Вид';
+
+export function proposalText(r: RepeatGroup, variants: readonly RepeatGroup[] = []): ProposalText {
   const props = [
     r.varyingAt.texts.length && `${r.varyingAt.texts.length} ${plural(r.varyingAt.texts.length, 'текст', 'текста', 'текстов')}`,
     r.varyingAt.icons.length && `${r.varyingAt.icons.length} ${plural(r.varyingAt.icons.length, 'иконка', 'иконки', 'иконок')} (замена)`,
@@ -39,5 +44,8 @@ export function proposalText(r: RepeatGroup): ProposalText {
       `Одинаковое устройство в ${r.count} ${plural(r.count, 'месте', 'местах', 'местах')} на ${r.screens} ${plural(r.screens, 'экране', 'экранах', 'экранах')}` +
       (parts.length ? `; собран из наших: ${parts.join(', ')}` : '') +
       (r.likeOurs ? `. Похож на наш «${r.likeOurs}» — сначала проверьте, не его ли это копия` : '. Среди наших компонентов похожего нет'),
+    variants: variants.length
+      ? `Варианты (${VARIANT_AXIS}): ` + [r, ...variants].map((v) => `${v.variant ?? v.name} ×${v.count} · ${Math.round(v.width)}×${Math.round(v.height)}`).join('; ')
+      : undefined,
   };
 }

@@ -36,4 +36,11 @@ describe('proposalText', () => {
     expect(t.props).toBe('Свойства: нет — все копии одинаковые');
     expect(t.why).toContain('Похож на наш «tariff»');
   });
+
+  it('варианты одного кандидата — строкой с осью «Вид»', () => {
+    const main = repeat({ name: 'Bottom Sheet', count: 22, width: 360, height: 340, variant: 'Основной' });
+    const v = repeat({ name: 'Bottom Sheet', count: 11, width: 360, height: 326, variant: 'С «Вы 5-й в очереди»', variantOf: main.id });
+    expect(proposalText(main, [v]).variants).toBe('Варианты (Вид): Основной ×22 · 360×340; С «Вы 5-й в очереди» ×11 · 360×326');
+    expect(proposalText(main).variants).toBeUndefined();
+  });
 });

@@ -55,8 +55,8 @@ interface Props {
 
 export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose }: Props) {
   const { report, scopeName, unreadable } = scanned;
-  // Вложенные повторы не показываем: они войдут в черновик внешнего.
-  const repeats = scanned.repeats.filter((r) => !r.nestedIn);
+  // Вложенные повторы и варианты не показываем отдельно: они войдут в черновик внешнего или главного.
+  const repeats = scanned.repeats.filter((r) => !r.nestedIn && !r.variantOf);
   // В черновики сразу отмечены повторы без пометки «Похож на наш …».
   const defaultPicks = () => repeats.filter((r) => !r.likeOurs).map((r) => r.id);
   const [picked, setPicked] = useState<string[]>(defaultPicks);
@@ -176,7 +176,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
           </p>
           <ul class="rows">
             {repeats.map((r) => (
-              <RepeatRow key={r.id} repeat={r} checked={picked.includes(r.id)} onToggle={() => setPicked((p) => (p.includes(r.id) ? p.filter((x) => x !== r.id) : [...p, r.id]))} />
+              <RepeatRow key={r.id} repeat={r} variants={scanned.repeats.filter((v) => v.variantOf === r.id)} checked={picked.includes(r.id)} onToggle={() => setPicked((p) => (p.includes(r.id) ? p.filter((x) => x !== r.id) : [...p, r.id]))} />
             ))}
           </ul>
           <div class="line">
@@ -197,7 +197,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   );
 }
 
-function RepeatRow({ repeat: r, checked, onToggle }: { repeat: RepeatGroup; checked: boolean; onToggle: () => void }) {
+function RepeatRow({ repeat: r, variants, checked, onToggle }: { repeat: RepeatGroup; variants: RepeatGroup[]; checked: boolean; onToggle: () => void }) {
   const what = [
     r.texts && `текстов ${r.texts}${r.varying.texts ? ` (меняется ${r.varying.texts})` : ''}`,
     r.icons && `иконок ${r.icons}${r.varying.icons ? ` (меняется ${r.varying.icons})` : ''}`,
@@ -214,18 +214,23 @@ function RepeatRow({ repeat: r, checked, onToggle }: { repeat: RepeatGroup; chec
           {r.name}
         </span>
         <span class="muted">
-          ×{r.count} · экр. {r.screens}
+          ×{r.count + variants.reduce((n, v) => n + v.count, 0)} · экр. {r.screens + variants.reduce((n, v) => n + v.screens, 0)}
         </span>
         <button class="link" title={r.exampleScreen} onClick={() => send({ type: 'focus', nodeId: r.exampleNodeId })}>
           Показать
         </button>
-        <button class="link" onClick={() => send({ type: 'select', nodeIds: r.nodeIds })}>
+        <button class="link" onClick={() => send({ type: 'select', nodeIds: [r, ...variants].flatMap((v) => v.nodeIds) })}>
           Выделить все
         </button>
       </div>
       <div class="muted">
         {Math.round(r.width)}×{Math.round(r.height)} · {what.join(' · ') || 'без текстов и иконок'}
       </div>
+      {variants.length > 0 && (
+        <div class="muted">
+          Варианты: {[r, ...variants].map((v) => `${v.variant} ×${v.count} · ${Math.round(v.width)}×${Math.round(v.height)}`).join('; ')}
+        </div>
+      )}
     </li>
   );
 }
