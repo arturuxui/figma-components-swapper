@@ -45,6 +45,7 @@ export type ToUi =
     }
   | { type: 'applied'; result: ApplyResult }
   | { type: 'undone'; restored: number; failed: number }
+  | { type: 'proposed'; pageName: string; drafts: number; missing: string[] }
   | { type: 'error'; message: string };
 
 export type ToPlugin =
@@ -56,4 +57,5 @@ export type ToPlugin =
   | { type: 'undo' }
   | { type: 'focus'; nodeId: string }
   | { type: 'select'; nodeIds: string[] }
+  | { type: 'propose'; ids: string[] }
   | { type: 'open-library'; url: string };

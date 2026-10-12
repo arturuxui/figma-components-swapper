@@ -49,6 +49,8 @@ export interface RepeatGroup {
   parts: string[];
   /** Сколько текстов и иконок отличаются между копиями — кандидаты в свойства компонента. */
   varying: { texts: number; icons: number };
+  /** Номера меняющихся текстов и иконок (порядок — как в `signature`): по ним черновик получает свойства. */
+  varyingAt: { texts: number[]; icons: number[] };
   /** Похож на наш компонент (≥ LIKE_OURS_MIN) — его имя: возможно, копия нашего, а не новый компонент. */
   likeOurs?: string;
 }
@@ -99,13 +101,18 @@ const mostCommon = (names: string[]) => {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0][0];
 };
 
-/** Сколько позиций списков отличаются между копиями (списки одной длины — устройство одно). */
-function varyingSlots(lists: string[][]): number {
+/** Позиции списков, которые отличаются между копиями (списки одной длины — устройство одно). */
+function varyingSlots(lists: string[][]): number[] {
   const len = Math.min(...lists.map((l) => l.length));
-  let n = 0;
-  for (let i = 0; i < len; i++) if (new Set(lists.map((l) => l[i])).size > 1) n++;
-  return n;
+  const out: number[] = [];
+  for (let i = 0; i < len; i++) if (new Set(lists.map((l) => l[i])).size > 1) out.push(i);
+  return out;
 }
+
+const varying = (texts: string[][], icons: string[][]) => {
+  const at = { texts: varyingSlots(texts), icons: varyingSlots(icons) };
+  return { varying: { texts: at.texts.length, icons: at.icons.length }, varyingAt: at };
+};
 
 /** Самый похожий наш компонент (размер ±20 %, иконки не в счёт) и похожесть. */
 function closestOurs(shape: Shape, ours: Iterable<Candidate>): { name: string; score: number } | null {
@@ -178,7 +185,7 @@ export function findRepeats(
         texts: sigs[0].texts.length + (sigs[0].outlined ?? 0),
         icons: sigs[0].icons.length,
         parts: [...sigs[0].parts],
-        varying: { texts: varyingSlots(sigs.map((s) => s.texts.map((t) => t.text))), icons: varyingSlots(sigs.map((s) => s.icons)) },
+        ...varying(sigs.map((s) => s.texts.map((t) => t.text)), sigs.map((s) => s.icons)),
       };
     })
     .sort((a, b) => Number(!!a.likeOurs) - Number(!!b.likeOurs) || b.count - a.count || b.screens - a.screens || a.name.localeCompare(b.name));

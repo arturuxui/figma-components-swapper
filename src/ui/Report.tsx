@@ -1,5 +1,6 @@
 // Отчёт скана с подбором по имени: что заменить, на что, примерка «Было / Будет».
 
+import { useEffect, useState } from 'preact/hooks';
 import { resolveChoice, type Candidate, type MatchStatus } from '../core/match';
 import { REPEAT_MIN_PLACES, REPEAT_MIN_SCREENS, type RepeatGroup } from '../core/repeats';
 import type { Origin, ReportGroup } from '../core/scan-report';
@@ -48,10 +49,17 @@ interface Props {
   onDecide: (groupId: string, key: string) => void;
   onProduct: (product: string) => void;
   onPreview: (groupId: string, target: TargetRef) => void;
+  proposed: Extract<ToUi, { type: 'proposed' }> | null;
+  onPropose: (ids: string[]) => void;
 }
 
-export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview }: Props) {
+export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose }: Props) {
   const { report, scopeName, unreadable, repeats } = scanned;
+  // В черновики сразу отмечены повторы без пометки «Похож на наш …».
+  const defaultPicks = () => repeats.filter((r) => !r.likeOurs).map((r) => r.id);
+  const [picked, setPicked] = useState<string[]>(defaultPicks);
+  // Новый скан — новые повторы.
+  useEffect(() => setPicked(defaultPicks()), [repeats]);
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
@@ -166,16 +174,28 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
           </p>
           <ul class="rows">
             {repeats.map((r) => (
-              <RepeatRow key={r.id} repeat={r} />
+              <RepeatRow key={r.id} repeat={r} checked={picked.includes(r.id)} onToggle={() => setPicked((p) => (p.includes(r.id) ? p.filter((x) => x !== r.id) : [...p, r.id]))} />
             ))}
           </ul>
+          <div class="line">
+            <button disabled={busy || !picked.length} onClick={() => onPropose(picked)}>
+              Черновики на страницу · {picked.length}
+            </button>
+            <span class="muted">Карточки с обоснованием и черновиком компонента — на странице «Components Swapper · Предложения».</span>
+          </div>
+          {proposed && (
+            <p class="muted">
+              Готово: {proposed.drafts} на странице «{proposed.pageName}».
+              {proposed.missing.length ? ` Не нашлись (удалены после скана): ${proposed.missing.join(', ')}.` : ''}
+            </p>
+          )}
         </section>
       )}
     </>
   );
 }
 
-function RepeatRow({ repeat: r }: { repeat: RepeatGroup }) {
+function RepeatRow({ repeat: r, checked, onToggle }: { repeat: RepeatGroup; checked: boolean; onToggle: () => void }) {
   const what = [
     r.texts && `текстов ${r.texts}${r.varying.texts ? ` (меняется ${r.varying.texts})` : ''}`,
     r.icons && `иконок ${r.icons}${r.varying.icons ? ` (меняется ${r.varying.icons})` : ''}`,
@@ -184,6 +204,7 @@ function RepeatRow({ repeat: r }: { repeat: RepeatGroup }) {
   return (
     <li class="group">
       <div class="line">
+        <input type="checkbox" checked={checked} onChange={onToggle} title="В черновики" />
         <span class={`tag ${r.likeOurs ? 'ours' : 'foreign'}`} title={r.likeOurs ? `Устроен почти как наш «${r.likeOurs}» — возможно, это его копия` : undefined}>
           {r.likeOurs ? `Похож на ${r.likeOurs}` : 'Повтор'}
         </span>
