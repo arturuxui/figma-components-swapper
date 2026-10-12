@@ -47,7 +47,7 @@ async function setText(id: string, text: string) {
 }
 
 /** Экземпляр на месте фрейма: тот же индекс у родителя, то же поведение в auto layout или те же координаты. */
-function place(instance: InstanceNode, frame: FrameNode) {
+export function place(instance: InstanceNode, frame: FrameNode) {
   const parent = frame.parent as (BaseNode & ChildrenMixin) | null;
   if (!parent) throw new Error('У фрейма нет родителя.');
   parent.insertChild(parent.children.indexOf(frame), instance);

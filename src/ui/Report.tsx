@@ -54,12 +54,14 @@ interface Props {
 }
 
 export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose }: Props) {
-  const { report, scopeName, unreadable, repeats } = scanned;
+  const { report, scopeName, unreadable } = scanned;
+  // Вложенные повторы не показываем: они войдут в черновик внешнего.
+  const repeats = scanned.repeats.filter((r) => !r.nestedIn);
   // В черновики сразу отмечены повторы без пометки «Похож на наш …».
   const defaultPicks = () => repeats.filter((r) => !r.likeOurs).map((r) => r.id);
   const [picked, setPicked] = useState<string[]>(defaultPicks);
   // Новый скан — новые повторы.
-  useEffect(() => setPicked(defaultPicks()), [repeats]);
+  useEffect(() => setPicked(defaultPicks()), [scanned.repeats]);
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);

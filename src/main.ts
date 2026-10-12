@@ -184,7 +184,7 @@ async function focus(nodeId: string) {
 async function proposeDrafts(ids: string[]) {
   const chosen = (last?.repeats ?? []).filter((r) => ids.includes(r.id));
   if (!chosen.length) throw new Error('Не выбрано ни одного повтора — пересканируйте макет.');
-  const result = await propose(chosen, progress);
+  const result = await propose(chosen, { all: last!.repeats, byName: last!.byName, lookup: last!.lookup, product: last!.product ?? undefined }, progress);
   try {
     figma.commitUndo();
   } catch {

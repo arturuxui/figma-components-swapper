@@ -25,15 +25,16 @@ const screen = (name: string, children: StructNode[]): { ref: { id: string; name
 };
 
 describe('findRepeats', () => {
-  it('строка на трёх экранах — один повтор, вложенный фрейм с текстами не отдельный', () => {
+  it('строка на трёх экранах — один повтор; фрейм с текстами внутри — вложенный, с привязкой к строке', () => {
     const screens = [
       screen('A', [row('Эконом', '300 ₽')]),
       screen('B', [row('Комфорт', '450 ₽')]),
       screen('C', [row('Бизнес', '900 ₽', 'star')]),
     ];
     const r = findRepeats(screens);
-    expect(r).toHaveLength(1);
-    expect(r[0]).toMatchObject({ name: 'trip row', count: 3, screens: 3, texts: 2, icons: 1, varying: { texts: 2, icons: 1 } });
+    expect(r.filter((g) => !g.nestedIn)).toHaveLength(1);
+    expect(r[0]).toMatchObject({ name: 'trip row', count: 3, screens: 3, texts: 2, icons: 1, varying: { texts: 2, icons: 1 }, varyingAt: { texts: [0, 1], icons: [0] } });
+    expect(r[1]).toMatchObject({ name: 'texts', count: 3, nestedIn: r[0].id });
   });
 
   it('на двух экранах и в четырёх местах — ещё не повтор', () => {
@@ -84,7 +85,7 @@ describe('findRepeats — часть экрана и похожие на наш�
     const tariff = { key: 't', isSet: false, name: 'tariff', libraryId: 'l', product: 'driver', kind: 'components' as const, sizes: [{ width: 158, height: 148 }], shape: { width: 158, height: 148, layoutMode: 'NONE', textCount: 1, iconCount: 1, parts: [] } };
     const screens = [screen('A', [card(), row('a', '1')]), screen('B', [card(), row('b', '2')]), screen('C', [card(), row('c', '3')])];
     const r = findRepeats(screens, new Set(), [tariff]);
-    expect(r.map((g) => [g.name, g.likeOurs])).toEqual([
+    expect(r.filter((g) => !g.nestedIn).map((g) => [g.name, g.likeOurs])).toEqual([
       ['trip row', undefined],
       ['Frame 500', 'tariff'],
     ]);
