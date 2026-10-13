@@ -11,9 +11,9 @@ import { propose } from './figma/propose';
 import { hasVisual, snapshot } from './figma/structure';
 import { screenTrees } from './figma/repeats';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
-import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
+import { applySwaps, finalizeFrames, settleOurs, undoSwaps, type ApplyResult } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
-import { proposeImprovements } from './figma/improve';
+import { proposeImprovements, type Improvement } from './figma/improve';
 import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
@@ -55,7 +55,7 @@ let last: {
  * Этап 5: реальные расхождения экземпляров, которые заменяем, со своим (старым) компонентом — по группам отчёта.
  * При замене их судьбу решает пользователь (правило 17 скилла).
  */
-async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string, { id: string; name: string }>): Promise<OverrideGroup[]> {
+async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string, { id: string; name: string }>, topOnly = false): Promise<OverrideGroup[]> {
   const out: OverrideGroup[] = [];
   const total = groups.reduce((n, g) => n + g.nodeIds.length, 0);
   let done = 0;
@@ -65,12 +65,22 @@ async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string,
       if (++done % 200 === 0) progress(`Расхождения с компонентами: ${done} из ${total}`);
       const node = await figma.getNodeByIdAsync(id);
       if (!node || node.type !== 'INSTANCE') continue;
+      // Наш экземпляр внутри другого экземпляра — часть того компонента, его расхождения считаются у внешнего.
+      if (topOnly && insideInstance(node)) continue;
       items.push({ nodeId: id, screen: screenOf.get(id) ?? { id: '', name: '' }, diffs: await realOverrides(node) });
     }
     out.push(...groupOverrides(g.id, items));
   }
   return out;
 }
+
+function insideInstance(node: BaseNode): boolean {
+  for (let p = node.parent; p && p.type !== 'PAGE'; p = p.parent) if (p.type === 'INSTANCE') return true;
+  return false;
+}
+
+/** Экземпляры наших компонентов (не отвязанные) — у них тоже бывают расхождения с компонентом (этап 5). */
+const oursGroups = (report: ScanReport) => report.groups.filter((g) => !g.detached && !g.manual && g.origin === 'ours');
 
 /** Чужие и локальные экземпляры — по ним угадывается продукт макета. */
 const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
@@ -129,7 +139,8 @@ async function scan() {
   // Этап 4: повторы, которые не наши компоненты и не их копии, — кандидаты в новые компоненты.
   const ours = [...byName.values()].flat().filter((c) => !guess || c.product === guess);
   const repeats = findRepeats(await screenTrees(roots, progress), new Set(manualGroups.flatMap((g) => g.nodeIds)), ours);
-  const overrides = await overridesOf(toReplace(report), new Map(found.instances.map((f) => [f.nodeId, f.screen])));
+  const screenOf = new Map(found.instances.map((f) => [f.nodeId, f.screen]));
+  const overrides = [...(await overridesOf(toReplace(report), screenOf)), ...(await overridesOf(oursGroups(report), screenOf, true))];
   last = {
     report,
     byName,
@@ -206,14 +217,36 @@ async function apply(choices: { groupId: string; target: { key: string; isSet: b
       const name = last!.lookup.get(key)?.name ?? groups.find((g) => g.id === o.groupId)?.name ?? '';
       return { group: o, ours: name.split(' / ')[0] };
     });
+  await addImprovements(result, variants);
+  // Скан устарел: заменённые места больше не чужие.
+  last = null;
+  post({ type: 'applied', result });
+}
+
+/** Карточки «нужен вариант» — в итог применения; блок запоминается для «Отменить». */
+async function addImprovements(result: ApplyResult, variants: Improvement[]) {
   improvementsBlock = null;
   const improved = await proposeImprovements(variants, progress);
-  if (improved) {
-    improvementsBlock = improved.containerId;
-    const page = (await figma.getNodeByIdAsync(improved.pageId)) as PageNode;
-    result.improvements = { pageName: page.name, cards: improved.cards };
-  }
-  // Скан устарел: заменённые места больше не чужие.
+  if (!improved) return;
+  improvementsBlock = improved.containerId;
+  const page = (await figma.getNodeByIdAsync(improved.pageId)) as PageNode;
+  result.improvements = { pageName: page.name, cards: improved.cards };
+}
+
+/** Решения по расхождениям наших экземпляров (без замены). */
+async function settle(overrideChoices: Record<string, OverrideChoice>) {
+  if (!last) throw new Error('Сначала просканируйте макет.');
+  const ours = new Map(oursGroups(last.report).map((g) => [g.id, g]));
+  const chosen = last.overrides.filter((o) => ours.has(o.groupId) && overrideChoices[o.id]);
+  if (!chosen.length) throw new Error('Не выбрано ни одного решения.');
+  const result = await settleOurs(
+    chosen.map((o) => ({ name: ours.get(o.groupId)!.name, nodeIds: o.nodeIds, choice: overrideChoices[o.id] })),
+    progress,
+  );
+  await addImprovements(
+    result,
+    chosen.filter((o) => overrideChoices[o.id] === 'variant').map((o) => ({ group: o, ours: ours.get(o.groupId)!.name })),
+  );
   last = null;
   post({ type: 'applied', result });
 }
@@ -283,6 +316,7 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'preview') await preview(msg.groupId, msg.target);
     else if (msg.type === 'apply') await apply(msg.choices, msg.overrides);
     else if (msg.type === 'undo') await undo();
+    else if (msg.type === 'settle') await settle(msg.overrides);
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'select') await select(msg.nodeIds);
     else if (msg.type === 'propose') await proposeDrafts(msg.ids);

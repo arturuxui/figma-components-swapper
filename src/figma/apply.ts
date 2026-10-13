@@ -48,6 +48,8 @@ export interface ApplyResult {
 
 type JournalEntry =
   | { kind: 'swap'; node: InstanceNode; previous: ComponentNode; captured?: CapturedOverride[] }
+  /** Наш экземпляр, которому вернули значения компонента («ошибка макета»): при отмене — прежние значения. */
+  | { kind: 'props'; node: InstanceNode; captured: CapturedOverride[] }
   | { kind: 'frame'; frame: FrameNode; instance: InstanceNode; wasVisible: boolean };
 
 /** Отдельный шаг в истории Figma. В некоторых средах (сервер Figma MCP) API нет — тогда без отдельного шага. */
@@ -230,6 +232,54 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
   return result;
 }
 
+/**
+ * Решения по расхождениям наших экземпляров (этап 5, без замены): «ошибка макета» — вернуть слоям значения
+ * компонента, «перенести» и «нужен вариант» — оставить как есть (карточки «нужен вариант» делает main.ts).
+ */
+export async function settleOurs(items: readonly { name: string; nodeIds: string[]; choice: OverrideChoice }[], progress: (text: string) => void): Promise<ApplyResult> {
+  const result: ApplyResult = {
+    replaced: 0,
+    frames: 0,
+    nested: 0,
+    skipped: 0,
+    lostTexts: [],
+    axesMissing: 0,
+    leftovers: [],
+    overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
+    errors: [],
+  };
+  finalizeFrames();
+  journal = [];
+  commitUndo();
+  const total = items.reduce((n, i) => n + i.nodeIds.length, 0);
+  let done = 0;
+  for (const item of items) {
+    for (const id of item.nodeIds) {
+      if (++done % 20 === 0) progress(`Расхождения: ${done} из ${total}`);
+      const node = await figma.getNodeByIdAsync(id);
+      if (!node || node.type !== 'INSTANCE' || node.removed) {
+        result.skipped++;
+        continue;
+      }
+      if (item.choice === 'keep') result.overrides.kept++;
+      else if (item.choice === 'variant') result.overrides.variants++;
+      if (item.choice !== 'error') continue;
+      try {
+        const captured = await captureOverrides(node);
+        const failed: string[] = [];
+        for (const c of captured) if (!(await applyOverride(node, c, 'reset'))) failed.push(`${c.diff.layer}: ${c.diff.to}`);
+        journal.push({ kind: 'props', node, captured });
+        if (failed.length) result.overrides.failed.push({ nodeId: id, name: item.name, message: failed.join(', ') });
+        result.overrides.reset++;
+      } catch (e) {
+        result.errors.push({ nodeId: id, name: item.name, message: e instanceof Error ? e.message : String(e) });
+      }
+    }
+  }
+  commitUndo();
+  return result;
+}
+
 /** Откат последнего применения: в обратном порядке, вложенные — раньше своих корней. */
 export async function undoSwaps(progress: (text: string) => void): Promise<{ restored: number; failed: number }> {
   let restored = 0;
@@ -238,7 +288,10 @@ export async function undoSwaps(progress: (text: string) => void): Promise<{ res
     const entry = journal[i];
     if ((journal.length - i) % 20 === 0) progress(`Возвращено ${journal.length - i} из ${journal.length}`);
     try {
-      if (entry.kind === 'swap') {
+      if (entry.kind === 'props') {
+        if (entry.node.removed) throw new Error('removed');
+        await restoreOverrides(entry.node, entry.captured);
+      } else if (entry.kind === 'swap') {
         if (entry.node.removed) throw new Error('removed');
         entry.node.swapComponent(entry.previous);
         if (entry.captured?.length) await restoreOverrides(entry.node, entry.captured);

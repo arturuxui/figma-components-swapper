@@ -56,6 +56,7 @@ export type ToPlugin =
   | { type: 'preview'; groupId: string; target: TargetRef }
   | { type: 'apply'; choices: { groupId: string; target: TargetRef }[]; overrides?: Record<string, OverrideChoice> }
   | { type: 'undo' }
+  | { type: 'settle'; overrides: Record<string, OverrideChoice> }
   | { type: 'focus'; nodeId: string }
   | { type: 'select'; nodeIds: string[] }
   | { type: 'propose'; ids: string[] }
