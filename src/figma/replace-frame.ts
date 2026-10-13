@@ -72,12 +72,18 @@ export function place(instance: InstanceNode, frame: FrameNode) {
   if (Math.abs(frame.width - instance.width) > 1 && Math.abs(frame.height - instance.height) <= 1) instance.resize(frame.width, instance.height);
 }
 
-export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'key' | 'isSet'>, ctx: FrameContext): Promise<FrameOutcome> {
+/** Вариант нашего компонента, ближайший к фрейму по устройству (его же ставит замена). */
+export async function variantFor(frame: FrameNode, target: Pick<Candidate, 'key' | 'isSet'>) {
   const main = await importTarget(target);
   const variants = main.type === 'COMPONENT_SET' ? main.children.filter((c): c is ComponentNode => c.type === 'COMPONENT') : [main];
   const frameSig = signature(await snapshot(frame));
   const pick = pickByStructure(frameSig, await Promise.all(variants.map(variantSignature)));
   const component = variants[pick.index] ?? (main.type === 'COMPONENT_SET' ? main.defaultVariant : main);
+  return { component, frameSig, pick };
+}
+
+export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'key' | 'isSet'>, ctx: FrameContext): Promise<FrameOutcome> {
+  const { component, frameSig, pick } = await variantFor(frame, target);
 
   const instance = component.createInstance();
   place(instance, frame);
