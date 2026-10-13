@@ -18,8 +18,8 @@ import { place, replaceFrame } from './replace-frame';
 import { SCREEN_DEPTH, snapshot } from './structure';
 import { swapInstance } from './swap';
 
-const REGULAR: FontName = { family: 'Inter', style: 'Regular' };
-const BOLD: FontName = { family: 'Inter', style: 'Semi Bold' };
+export const REGULAR: FontName = { family: 'Inter', style: 'Regular' };
+export const BOLD: FontName = { family: 'Inter', style: 'Semi Bold' };
 /** Точка в начале имени — компонент не публикуется с библиотекой. */
 const DRAFT = '.Черновик';
 
@@ -40,7 +40,7 @@ export interface ProposeResult {
 }
 
 /** Фрейм с auto layout, растущий по содержимому. */
-function stack(direction: 'HORIZONTAL' | 'VERTICAL', name: string, gap: number): FrameNode {
+export function stack(direction: 'HORIZONTAL' | 'VERTICAL', name: string, gap: number): FrameNode {
   const f = figma.createFrame();
   f.name = name;
   f.layoutMode = direction;
@@ -51,7 +51,7 @@ function stack(direction: 'HORIZONTAL' | 'VERTICAL', name: string, gap: number):
   return f;
 }
 
-async function page(): Promise<PageNode> {
+export async function page(): Promise<PageNode> {
   const existing = figma.root.children.find((p) => p.name === PROPOSALS_PAGE);
   if (existing) return existing;
   const created = figma.createPage();
@@ -59,7 +59,7 @@ async function page(): Promise<PageNode> {
   return created;
 }
 
-function text(characters: string, font: FontName, size: number, color = 0.1): TextNode {
+export function text(characters: string, font: FontName, size: number, color = 0.1): TextNode {
   const t = figma.createText();
   t.fontName = font;
   t.fontSize = size;

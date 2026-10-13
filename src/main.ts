@@ -13,6 +13,7 @@ import { screenTrees } from './figma/repeats';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
 import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
+import { proposeImprovements } from './figma/improve';
 import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
@@ -196,9 +197,38 @@ async function apply(choices: { groupId: string; target: { key: string; isSet: b
   const overrides = new Map<string, OverrideChoice | null>();
   for (const o of last.overrides) for (const id of o.nodeIds) overrides.set(id, overrideChoices[o.id] ?? null);
   const result = await applySwaps(selected, { lookup: last.lookup, byName: last.byName, product: last.product ?? undefined, progress, overrides });
+  // «Нужен вариант» — карточки доработок на странице предложений (после замены: на карточке — уже наш экземпляр).
+  const targetOf = new Map(choices.map((c) => [c.groupId, c.target.key]));
+  const variants = last.overrides
+    .filter((o) => overrideChoices[o.id] === 'variant' && targetOf.has(o.groupId))
+    .map((o) => {
+      const key = targetOf.get(o.groupId)!;
+      const name = last!.lookup.get(key)?.name ?? groups.find((g) => g.id === o.groupId)?.name ?? '';
+      return { group: o, ours: name.split(' / ')[0] };
+    });
+  improvementsBlock = null;
+  const improved = await proposeImprovements(variants, progress);
+  if (improved) {
+    improvementsBlock = improved.containerId;
+    const page = (await figma.getNodeByIdAsync(improved.pageId)) as PageNode;
+    result.improvements = { pageName: page.name, cards: improved.cards };
+  }
   // Скан устарел: заменённые места больше не чужие.
   last = null;
   post({ type: 'applied', result });
+}
+
+/** Блок карточек доработок последнего применения — «Отменить» убирает и его. */
+let improvementsBlock: string | null = null;
+
+async function undo() {
+  const result = await undoSwaps(progress);
+  if (improvementsBlock) {
+    const block = await figma.getNodeByIdAsync(improvementsBlock);
+    if (block && !block.removed) block.remove();
+    improvementsBlock = null;
+  }
+  post({ type: 'undone', ...result });
 }
 
 async function focus(nodeId: string) {
@@ -252,7 +282,7 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'set-product') sendMatches(msg.product);
     else if (msg.type === 'preview') await preview(msg.groupId, msg.target);
     else if (msg.type === 'apply') await apply(msg.choices, msg.overrides);
-    else if (msg.type === 'undo') post({ type: 'undone', ...(await undoSwaps(progress)) });
+    else if (msg.type === 'undo') await undo();
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'select') await select(msg.nodeIds);
     else if (msg.type === 'propose') await proposeDrafts(msg.ids);

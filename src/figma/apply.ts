@@ -41,6 +41,8 @@ export interface ApplyResult {
   leftovers: ApplyIssue[];
   /** Расхождения с компонентом (этап 5): сколько перенесено, сколько приведено к нашему, что не вышло. */
   overrides: { kept: number; reset: number; variants: number; undecided: number; failed: ApplyIssue[] };
+  /** Карточки «нужен вариант» на странице предложений (заполняет main.ts после замены). */
+  improvements?: { pageName: string; cards: number };
   errors: ApplyIssue[];
 }
 
