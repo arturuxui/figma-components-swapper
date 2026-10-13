@@ -33,6 +33,11 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
           {r.overrides.undecided ? `, не решено — ${r.overrides.undecided} (как получилось после замены)` : ''}.
         </p>
       )}
+      {r.improvements && (
+        <p class="muted">
+          Доработки компонентов («нужен вариант»): {r.improvements.cards} на странице «{r.improvements.pageName}».
+        </p>
+      )}
       <Issues title="Расхождения не перенеслись — проверьте" items={r.overrides.failed} />
       <Issues title="Пропали тексты — проверьте" items={r.lostTexts} />
       <Issues title="Фреймы: осталось от компонента — проверьте" items={r.leftovers} />

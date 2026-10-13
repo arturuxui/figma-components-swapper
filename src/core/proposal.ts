@@ -3,6 +3,7 @@
 //
 // Куда отправлять предложения, решает PD (RickOBrian/aid#185); пока — карточки на странице в файле макета.
 
+import { diffText, type OverrideGroup } from './overrides';
 import type { RepeatGroup } from './repeats';
 
 export const PROPOSALS_PAGE = 'Components Swapper · Предложения';
@@ -47,5 +48,28 @@ export function proposalText(r: RepeatGroup, variants: readonly RepeatGroup[] = 
     variants: variants.length
       ? `Варианты (${VARIANT_AXIS}): ` + [r, ...variants].map((v) => `${v.variant ?? v.name} ×${v.count} · ${Math.round(v.width)}×${Math.round(v.height)}`).join('; ')
       : undefined,
+  };
+}
+
+/** Карточка доработки нашего компонента (этап 5): расхождение, по которому пользователь решил «нужен вариант». */
+export interface ImprovementText {
+  title: string;
+  /** «×170 · 39 экранов». */
+  meta: string;
+  /** Что изменено в макете — по строке на расхождение. */
+  changes: string[];
+  why: string;
+}
+
+/** Правила 13 и 17 скилла: нет нужного варианта — не молчать, а предложить доработку с доказательством. */
+export function improvementText(o: OverrideGroup, ours: string): ImprovementText {
+  return {
+    title: `Доработка · ${ours}`,
+    meta: `×${o.count} · ${o.screens} ${plural(o.screens, 'экран', 'экрана', 'экранов')}`,
+    changes: o.diffs.map(diffText),
+    why:
+      `В макете ${o.count} ${plural(o.count, 'экземпляр', 'экземпляра', 'экземпляров')} «${ours}» на ${o.screens} ${plural(o.screens, 'экране', 'экранах', 'экранах')} ` +
+      `изменены одинаково. Пользователь решил: это не ошибка макета — компоненту нужен вариант. При замене изменение перенесено ` +
+      `переопределением; библиотеку плагин не меняет`,
   };
 }
