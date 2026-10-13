@@ -3,9 +3,13 @@
 // Каждая замена пишется в журнал: «Отменить» возвращает старый главный компонент — с теми же вариантом,
 // текстами и вложенными подменами. Фреймы (этап 2) заменяются экземплярами (replace-frame.ts): при отмене экземпляр
 // удаляется, а скрытый фрейм снова виден.
+// Расхождения экземпляров со своим компонентом (этап 5) — по выбору пользователя: «ошибка макета» — как в нашем
+// компоненте, «перенести» и «нужен вариант» — повторить на нашем экземпляре. Отмена возвращает и их.
 
 import type { KeyHit } from '../core/library-index';
 import { matchByName, type Candidate } from '../core/match';
+import type { OverrideChoice } from '../core/overrides';
+import { applyOverride, captureOverrides, restoreOverrides, type CapturedOverride } from './overrides';
 import { replaceFrame, type FrameContext } from './replace-frame';
 import { swapInstance } from './swap';
 
@@ -35,10 +39,14 @@ export interface ApplyResult {
   axesMissing: number;
   /** Фреймы: тексты и иконки компонента, которые остались как в библиотеке, — проверить глазами. */
   leftovers: ApplyIssue[];
+  /** Расхождения с компонентом (этап 5): сколько перенесено, сколько приведено к нашему, что не вышло. */
+  overrides: { kept: number; reset: number; variants: number; undecided: number; failed: ApplyIssue[] };
   errors: ApplyIssue[];
 }
 
-type JournalEntry = { kind: 'swap'; node: InstanceNode; previous: ComponentNode } | { kind: 'frame'; frame: FrameNode; instance: InstanceNode; wasVisible: boolean };
+type JournalEntry =
+  | { kind: 'swap'; node: InstanceNode; previous: ComponentNode; captured?: CapturedOverride[] }
+  | { kind: 'frame'; frame: FrameNode; instance: InstanceNode; wasVisible: boolean };
 
 /** Отдельный шаг в истории Figma. В некоторых средах (сервер Figma MCP) API нет — тогда без отдельного шага. */
 function commitUndo() {
@@ -81,10 +89,22 @@ async function readMain(node: InstanceNode): Promise<ComponentNode | null> {
 export interface ApplyContext extends FrameContext {
   lookup: ReadonlyMap<string, KeyHit>;
   progress: (text: string) => void;
+  /** Экземпляры с расхождениями → выбор пользователя (null — не решено: как сделает замена, но с отменой). */
+  overrides?: ReadonlyMap<string, OverrideChoice | null>;
 }
 
 export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContext): Promise<ApplyResult> {
-  const result: ApplyResult = { replaced: 0, frames: 0, nested: 0, skipped: 0, lostTexts: [], axesMissing: 0, leftovers: [], errors: [] };
+  const result: ApplyResult = {
+    replaced: 0,
+    frames: 0,
+    nested: 0,
+    skipped: 0,
+    lostTexts: [],
+    axesMissing: 0,
+    leftovers: [],
+    overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
+    errors: [],
+  };
   finalizeFrames();
   journal = [];
   // Отдельный шаг в истории Figma: Ctrl+Z после плагина не захватит то, что было до него.
@@ -100,11 +120,34 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
   };
   let done = 0;
 
+  /** Расхождения после замены — по выбору пользователя. */
+  const settleOverrides = async (node: InstanceNode, name: string, captured: CapturedOverride[], choice: OverrideChoice | null) => {
+    if (!choice) {
+      result.overrides.undecided++;
+      return;
+    }
+    const failed: string[] = [];
+    for (const c of captured) {
+      try {
+        if (!(await applyOverride(node, c, choice === 'error' ? 'reset' : 'keep'))) failed.push(`${c.diff.layer}: ${c.diff.to}`);
+      } catch {
+        failed.push(`${c.diff.layer}: ${c.diff.to}`);
+      }
+    }
+    if (failed.length) result.overrides.failed.push({ nodeId: node.id, name, message: failed.join(', ') });
+    if (choice === 'error') result.overrides.reset++;
+    else if (choice === 'variant') result.overrides.variants++;
+    else result.overrides.kept++;
+  };
+
   const swapOne = async (node: InstanceNode, name: string, target: Pick<Candidate, 'key' | 'isSet'>) => {
     const previous = await readMain(node);
     if (!previous) return false;
+    const choice = ctx.overrides?.get(node.id);
+    const captured = choice === undefined ? undefined : await captureOverrides(node);
     const outcome = await swapInstance(node, target);
-    journal.push({ kind: 'swap', node, previous });
+    journal.push({ kind: 'swap', node, previous, captured });
+    if (captured?.length) await settleOverrides(node, name, captured, choice ?? null);
     if (outcome.lost.length) result.lostTexts.push({ nodeId: node.id, name, message: outcome.lost.map((t) => `«${t}»`).join(', ') });
     if (outcome.pick?.unmatched.length) result.axesMissing++;
     return true;
@@ -186,7 +229,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
 }
 
 /** Откат последнего применения: в обратном порядке, вложенные — раньше своих корней. */
-export function undoSwaps(progress: (text: string) => void): { restored: number; failed: number } {
+export async function undoSwaps(progress: (text: string) => void): Promise<{ restored: number; failed: number }> {
   let restored = 0;
   let failed = 0;
   for (let i = journal.length - 1; i >= 0; i--) {
@@ -196,6 +239,7 @@ export function undoSwaps(progress: (text: string) => void): { restored: number;
       if (entry.kind === 'swap') {
         if (entry.node.removed) throw new Error('removed');
         entry.node.swapComponent(entry.previous);
+        if (entry.captured?.length) await restoreOverrides(entry.node, entry.captured);
       } else {
         if (entry.frame.removed) throw new Error('removed');
         if (!entry.instance.removed) entry.instance.remove();

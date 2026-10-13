@@ -118,13 +118,19 @@ async function insideSwapped(node: SceneNode, inst: InstanceNode, main: Componen
   return false;
 }
 
-/** Реальные расхождения экземпляра с его компонентом. */
-export async function realOverrides(inst: InstanceNode): Promise<OverrideDiff[]> {
+interface FoundOverride {
+  node: SceneNode;
+  field: OverrideField;
+  diff: OverrideDiff;
+}
+
+/** Реальные расхождения со слоями, на которых они найдены. */
+async function findOverrides(inst: InstanceNode): Promise<FoundOverride[]> {
   const relevant = inst.overrides.filter((o) => o.overriddenFields.some((f) => f in FIELDS));
   if (!relevant.length) return [];
   const main = await mainOf(inst);
   if (!main) return [];
-  const out: OverrideDiff[] = [];
+  const out: FoundOverride[] = [];
   const seen = new Set<string>();
   for (const o of relevant) {
     const node = o.id === inst.id ? inst : (inst.findOne((n) => n.id === o.id) as SceneNode | null);
@@ -141,8 +147,164 @@ export async function realOverrides(inst: InstanceNode): Promise<OverrideDiff[]>
       if (seen.has(key)) continue;
       seen.add(key);
       const [from, to] = await Promise.all([value(ref, field), value(node, field)]);
-      if (from !== to) out.push({ layer: node.id === inst.id ? 'компонент' : node.name, field, from, to });
+      if (from !== to) out.push({ node, field, diff: { layer: node.id === inst.id ? 'компонент' : node.name, field, from, to } });
     }
   }
   return out;
+}
+
+/** Реальные расхождения экземпляра с его компонентом. */
+export async function realOverrides(inst: InstanceNode): Promise<OverrideDiff[]> {
+  return (await findOverrides(inst)).map((f) => f.diff);
+}
+
+// --- Применение выбора при замене (этап 5, шаг 2) ---
+
+/** Сырые значения поля слоя — чтобы повторить их на другом слое или вернуть при отмене. */
+type FieldValues = Record<string, unknown>;
+
+const KEYS: Record<OverrideField, string[]> = {
+  fill: ['fillStyleId', 'fills'],
+  textColor: ['fillStyleId', 'fills'],
+  stroke: ['strokeStyleId', 'strokes'],
+  effect: ['effectStyleId', 'effects'],
+  textStyle: ['textStyleId', 'fontName', 'fontSize'],
+  visible: ['visible'],
+  opacity: ['opacity'],
+  radius: ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'],
+};
+
+function read(node: SceneNode, field: OverrideField): FieldValues {
+  const n = node as unknown as Record<string, unknown>;
+  const out: FieldValues = {};
+  for (const k of KEYS[field]) if (k in n) out[k] = n[k];
+  return out;
+}
+
+const mixed = (v: unknown) => typeof v === 'symbol';
+
+async function loadFonts(node: SceneNode) {
+  if (node.type !== 'TEXT' || !node.characters.length) return;
+  await Promise.all(node.getRangeAllFontNames(0, node.characters.length).map((f) => figma.loadFontAsync(f)));
+}
+
+/** Записать значения поля в слой. Смешанные значения (разные куски текста) не переносим — false. */
+async function write(node: SceneNode, field: OverrideField, v: FieldValues): Promise<boolean> {
+  const n = node as unknown as Record<string, unknown>;
+  await loadFonts(node);
+  const style = (key: string) => (typeof v[key] === 'string' && v[key] ? (v[key] as string) : '');
+  switch (field) {
+    case 'fill':
+    case 'textColor':
+      if (style('fillStyleId')) await (node as unknown as MinimalFillsMixin).setFillStyleIdAsync(style('fillStyleId'));
+      else if (mixed(v.fills)) return false;
+      else n.fills = v.fills;
+      return true;
+    case 'stroke':
+      if (style('strokeStyleId')) await (node as unknown as MinimalStrokesMixin).setStrokeStyleIdAsync(style('strokeStyleId'));
+      else n.strokes = v.strokes;
+      return true;
+    case 'effect':
+      if (style('effectStyleId')) await (node as unknown as BlendMixin).setEffectStyleIdAsync(style('effectStyleId'));
+      else n.effects = v.effects;
+      return true;
+    case 'textStyle': {
+      if (node.type !== 'TEXT') return false;
+      if (style('textStyleId')) {
+        await node.setTextStyleIdAsync(style('textStyleId'));
+        return true;
+      }
+      if (mixed(v.fontName) || mixed(v.fontSize)) return false;
+      await figma.loadFontAsync(v.fontName as FontName);
+      node.fontName = v.fontName as FontName;
+      node.fontSize = v.fontSize as number;
+      return true;
+    }
+    case 'visible':
+      node.visible = Boolean(v.visible);
+      return true;
+    case 'opacity':
+      n.opacity = v.opacity;
+      return true;
+    case 'radius':
+      if (!mixed(v.cornerRadius)) n.cornerRadius = v.cornerRadius;
+      else for (const k of ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius']) n[k] = v[k];
+      return true;
+  }
+}
+
+/** Расхождение, запомненное до замены: где было (путь и как найти слой в новом компоненте) и какие значения. */
+export interface CapturedOverride {
+  diff: OverrideDiff;
+  field: OverrideField;
+  root: boolean;
+  /** Путь в старом экземпляре — для отмены. */
+  path: number[];
+  name: string;
+  type: NodeType;
+  /** Номер среди слоёв того же типа и среди слоёв того же типа и имени (обход в глубину). */
+  ordinal: number;
+  sameName: number;
+  values: FieldValues;
+}
+
+const layers = (inst: InstanceNode, type: NodeType) => inst.findAll((n) => n.type === type) as SceneNode[];
+const bare = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
+
+/** Запомнить реальные расхождения экземпляра перед заменой. */
+export async function captureOverrides(inst: InstanceNode): Promise<CapturedOverride[]> {
+  const out: CapturedOverride[] = [];
+  for (const { node, field, diff } of await findOverrides(inst)) {
+    const root = node.id === inst.id;
+    const same = root ? [] : layers(inst, node.type);
+    out.push({
+      diff,
+      field,
+      root,
+      path: root ? [] : (pathOf(node, inst) ?? []),
+      name: node.name,
+      type: node.type,
+      ordinal: same.findIndex((n) => n.id === node.id),
+      sameName: same.filter((n) => bare(n.name) === bare(node.name)).findIndex((n) => n.id === node.id),
+      values: read(node, field),
+    });
+  }
+  return out;
+}
+
+/** Слой нового (нашего) экземпляра для расхождения: корень, слой с тем же именем или тот же по счёту того же типа. */
+function locate(inst: InstanceNode, c: CapturedOverride): SceneNode | null {
+  if (c.root) return inst;
+  const same = layers(inst, c.type);
+  const named = same.filter((n) => bare(n.name) === bare(c.name));
+  if (named.length) return named[Math.min(Math.max(c.sameName, 0), named.length - 1)];
+  return same[c.ordinal] ?? null;
+}
+
+/**
+ * После замены: `keep` — повторить значение из старого экземпляра на нашем, `reset` — вернуть слою значение нашего
+ * компонента (если замена перенесла переопределение). false — слой не нашёлся или значение не переносится.
+ */
+export async function applyOverride(inst: InstanceNode, c: CapturedOverride, mode: 'keep' | 'reset'): Promise<boolean> {
+  const target = locate(inst, c);
+  if (!target) return false;
+  if (mode === 'keep') return write(target, c.field, c.values);
+  const main = await mainOf(inst);
+  const path = target.id === inst.id ? [] : pathOf(target, inst);
+  const ref = main && path ? at(main, path) : null;
+  if (!ref) return false;
+  return write(target, c.field, read(ref, c.field));
+}
+
+/** Отмена: после возврата старого компонента вернуть слоям запомненные значения. */
+export async function restoreOverrides(inst: InstanceNode, captured: readonly CapturedOverride[]): Promise<void> {
+  for (const c of captured) {
+    const node = c.root ? inst : at(inst, c.path);
+    if (!node) continue;
+    try {
+      await write(node, c.field, c.values);
+    } catch {
+      // слой не принимает значение — останется как в компоненте
+    }
+  }
 }

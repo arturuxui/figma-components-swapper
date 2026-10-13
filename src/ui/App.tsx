@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'preact/hooks';
 import type { IndexSummary } from '../core/library-index';
 import { resolveChoice } from '../core/match';
+import type { OverrideChoice } from '../core/overrides';
 import type { ApplyResult } from '../figma/apply';
 import type { LibraryInfo, Matches, TargetRef, ToPlugin, ToUi } from '../shared/messages';
 import { Applied } from './Applied';
@@ -43,6 +44,8 @@ export function App() {
   const [applied, setApplied] = useState<ApplyResult | null>(null);
   const [undone, setUndone] = useState<{ restored: number; failed: number } | null>(null);
   const [proposed, setProposed] = useState<Proposed | null>(null);
+  /** Выбор по расхождениям с компонентом (этап 5): id группы расхождений → что делать при замене. */
+  const [overrideChoices, setOverrideChoices] = useState<Record<string, OverrideChoice>>({});
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -64,6 +67,7 @@ export function App() {
         setApplied(null);
         setUndone(null);
         setProposed(null);
+        setOverrideChoices({});
       } else if (msg.type === 'matched') {
         setMatched(msg);
         setDecisions(defaultDecisions(msg.matches, scannedRef.current?.report));
@@ -145,6 +149,15 @@ export function App() {
             onPreview={(groupId, target) => run({ type: 'preview', groupId, target }, 'Примерка…')}
             proposed={proposed}
             onPropose={(ids) => run({ type: 'propose', ids }, 'Черновики…')}
+            overrideChoices={overrideChoices}
+            onChooseOverride={(id, choice) =>
+              setOverrideChoices((c) => {
+                const next = { ...c };
+                if (choice) next[id] = choice;
+                else delete next[id];
+                return next;
+              })
+            }
           />
         )}
         {error && <p class="error">{error}</p>}
@@ -160,7 +173,7 @@ export function App() {
               {scanned ? 'Пересканировать' : 'Сканировать'}
             </button>
             {showReport && (
-              <button class="primary" disabled={!!busy || !choices.length} onClick={() => run({ type: 'apply', choices }, 'Заменяю…')}>
+              <button class="primary" disabled={!!busy || !choices.length} onClick={() => run({ type: 'apply', choices, overrides: overrideChoices }, 'Заменяю…')}>
                 Заменить · {places}
               </button>
             )}

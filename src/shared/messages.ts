@@ -3,7 +3,7 @@
 import type { ApplyResult } from '../figma/apply';
 import type { IndexSummary, LibraryKind } from '../core/library-index';
 import type { Candidate, MatchResult } from '../core/match';
-import type { OverrideGroup } from '../core/overrides';
+import type { OverrideChoice, OverrideGroup } from '../core/overrides';
 import type { RepeatGroup } from '../core/repeats';
 import type { ScanReport } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
@@ -54,7 +54,7 @@ export type ToPlugin =
   | { type: 'scan' }
   | { type: 'set-product'; product: string }
   | { type: 'preview'; groupId: string; target: TargetRef }
-  | { type: 'apply'; choices: { groupId: string; target: TargetRef }[] }
+  | { type: 'apply'; choices: { groupId: string; target: TargetRef }[]; overrides?: Record<string, OverrideChoice> }
   | { type: 'undo' }
   | { type: 'focus'; nodeId: string }
   | { type: 'select'; nodeIds: string[] }

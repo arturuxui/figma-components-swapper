@@ -5,7 +5,7 @@ import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type Libra
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
 import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
 import { shapeOf, signature } from './core/structure';
-import { groupOverrides, type InstanceOverrides, type OverrideGroup } from './core/overrides';
+import { groupOverrides, type InstanceOverrides, type OverrideChoice, type OverrideGroup } from './core/overrides';
 import { findRepeats, type RepeatGroup } from './core/repeats';
 import { propose } from './figma/propose';
 import { hasVisual, snapshot } from './figma/structure';
@@ -184,7 +184,7 @@ async function preview(groupId: string, target: { key: string; isSet: boolean })
   post({ type: 'preview', groupId, targetKey: target.key, ...result });
 }
 
-async function apply(choices: { groupId: string; target: { key: string; isSet: boolean } }[]) {
+async function apply(choices: { groupId: string; target: { key: string; isSet: boolean } }[], overrideChoices: Record<string, OverrideChoice> = {}) {
   if (!last) throw new Error('Сначала просканируйте макет.');
   const groups = replaceable(last.report);
   const selected = choices.flatMap(({ groupId, target }) => {
@@ -192,7 +192,10 @@ async function apply(choices: { groupId: string; target: { key: string; isSet: b
     return g ? [{ name: g.name, nodeIds: g.nodeIds, target }] : [];
   });
   if (!selected.length) throw new Error('Не выбрано ни одной замены.');
-  const result = await applySwaps(selected, { lookup: last.lookup, byName: last.byName, product: last.product ?? undefined, progress });
+  // Экземпляры с расхождениями → выбор пользователя по их группе расхождений (не решено — null).
+  const overrides = new Map<string, OverrideChoice | null>();
+  for (const o of last.overrides) for (const id of o.nodeIds) overrides.set(id, overrideChoices[o.id] ?? null);
+  const result = await applySwaps(selected, { lookup: last.lookup, byName: last.byName, product: last.product ?? undefined, progress, overrides });
   // Скан устарел: заменённые места больше не чужие.
   last = null;
   post({ type: 'applied', result });
@@ -248,8 +251,8 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'scan') await scan();
     else if (msg.type === 'set-product') sendMatches(msg.product);
     else if (msg.type === 'preview') await preview(msg.groupId, msg.target);
-    else if (msg.type === 'apply') await apply(msg.choices);
-    else if (msg.type === 'undo') post({ type: 'undone', ...undoSwaps(progress) });
+    else if (msg.type === 'apply') await apply(msg.choices, msg.overrides);
+    else if (msg.type === 'undo') post({ type: 'undone', ...(await undoSwaps(progress)) });
     else if (msg.type === 'focus') await focus(msg.nodeId);
     else if (msg.type === 'select') await select(msg.nodeIds);
     else if (msg.type === 'propose') await proposeDrafts(msg.ids);
