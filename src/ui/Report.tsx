@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import { resolveChoice, type Candidate, type MatchStatus } from '../core/match';
-import { CHOICE_LABEL, diffText, type OverrideChoice, type OverrideGroup } from '../core/overrides';
+import { CHOICE_LABEL, diffText, OURS_CHOICE_LABEL, type OverrideChoice, type OverrideGroup } from '../core/overrides';
 import { REPEAT_MIN_PLACES, REPEAT_MIN_SCREENS, type RepeatGroup } from '../core/repeats';
 import type { Origin, ReportGroup } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
@@ -55,9 +55,11 @@ interface Props {
   /** Расхождения с компонентом: id группы расхождений → выбор пользователя. */
   overrideChoices: Record<string, OverrideChoice>;
   onChooseOverride: (id: string, choice: OverrideChoice | '') => void;
+  /** Применить решения по расхождениям наших экземпляров (без замены). */
+  onSettle: () => void;
 }
 
-export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose, overrideChoices, onChooseOverride }: Props) {
+export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose, overrideChoices, onChooseOverride, onSettle }: Props) {
   const { report, scopeName, unreadable } = scanned;
   // Вложенные повторы и варианты не показываем отдельно: они войдут в черновик внешнего или главного.
   const repeats = scanned.repeats.filter((r) => !r.nestedIn && !r.variantOf);
@@ -72,6 +74,9 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
   const manual = report.groups.filter((g) => g.manual);
+  // Наши экземпляры с расхождениями с компонентом (этап 5): замены нет, только решение по расхождению.
+  const oursWithOverrides = report.groups.filter((g) => !g.detached && !g.manual && g.origin === 'ours' && overridesOf(g.id).length);
+  const oursDecided = oursWithOverrides.flatMap((g) => overridesOf(g.id)).filter((o) => overrideChoices[o.id]).length;
   const matches: Matches = matched?.matches ?? {};
   const chosen = [...toReplace, ...detached, ...manual].filter((g) => decisions[g.id]);
   const places = chosen.reduce((n, g) => n + g.count, 0);
@@ -176,6 +181,37 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
         </section>
       )}
       {!toReplace.length && !detached.length && !manual.length && <p>Всё из библиотек WB AID.</p>}
+      {oursWithOverrides.length > 0 && (
+        <section>
+          <h2>Наши компоненты: расхождения с компонентом · {oursWithOverrides.length}</h2>
+          <p class="muted">
+            Экземпляры наших компонентов, изменённые в макете одинаково. «Ошибка макета» — вернуть как в компоненте, «Перенести» — оставить, «Нужен
+            вариант» — оставить и предложить доработку на странице предложений.
+          </p>
+          <ul class="rows">
+            {oursWithOverrides.map((g) => (
+              <li key={g.id} class="group">
+                <div class="line">
+                  <span class="tag ours">Наш</span>
+                  <span class="name" title={g.name}>
+                    {g.name}
+                  </span>
+                  <span class="muted">
+                    ×{g.count} · экр. {g.screens}
+                  </span>
+                </div>
+                <Overrides list={overridesOf(g.id)} choices={overrideChoices} busy={busy} onChoose={onChooseOverride} labels={OURS_CHOICE_LABEL} />
+              </li>
+            ))}
+          </ul>
+          <div class="line">
+            <button disabled={busy || !oursDecided} onClick={onSettle}>
+              Применить решения · {oursDecided}
+            </button>
+            <span class="muted">Отдельно от «Заменить»; «Отменить» вернёт как было.</span>
+          </div>
+        </section>
+      )}
       {repeats.length > 0 && (
         <section>
           <h2>Повторы — кандидаты в новые компоненты · {repeats.length}</h2>
@@ -349,7 +385,19 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview, overr
  * Расхождения экземпляров с их компонентом (правило 17 скилла): было → стало, сколько мест, пример и выбор —
  * ошибка макета, перенести или нужен вариант. Сами не решаем.
  */
-function Overrides({ list, choices, busy, onChoose }: { list: OverrideGroup[]; choices: Record<string, OverrideChoice>; busy: boolean; onChoose: (id: string, choice: OverrideChoice | '') => void }) {
+function Overrides({
+  list,
+  choices,
+  busy,
+  onChoose,
+  labels = CHOICE_LABEL,
+}: {
+  list: OverrideGroup[];
+  choices: Record<string, OverrideChoice>;
+  busy: boolean;
+  onChoose: (id: string, choice: OverrideChoice | '') => void;
+  labels?: Record<OverrideChoice, string>;
+}) {
   const places = list.reduce((n, o) => n + o.count, 0);
   const open = list.filter((o) => !choices[o.id]).length;
   return (
@@ -377,9 +425,9 @@ function Overrides({ list, choices, busy, onChoose }: { list: OverrideGroup[]; c
               </button>
               <select class="grow" value={choices[o.id] ?? ''} disabled={busy} onChange={(e) => onChoose(o.id, (e.target as HTMLSelectElement).value as OverrideChoice | '')}>
                 <option value="">— не решено —</option>
-                {(Object.keys(CHOICE_LABEL) as OverrideChoice[]).map((c) => (
+                {(Object.keys(labels) as OverrideChoice[]).map((c) => (
                   <option key={c} value={c}>
-                    {CHOICE_LABEL[c]}
+                    {labels[c]}
                   </option>
                 ))}
               </select>

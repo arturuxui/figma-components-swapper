@@ -44,6 +44,13 @@ export const CHOICE_LABEL: Record<OverrideChoice, string> = {
   variant: 'Нужен вариант — в предложения',
 };
 
+/** То же для наших экземпляров: замены нет, «перенести» — значит оставить. */
+export const OURS_CHOICE_LABEL: Record<OverrideChoice, string> = {
+  error: 'Ошибка макета — вернуть как в компоненте',
+  keep: 'Оставить как есть',
+  variant: 'Нужен вариант — оставить и в предложения',
+};
+
 export interface OverrideGroup {
   /** `o:` + id группы отчёта + набор расхождений. */
   id: string;

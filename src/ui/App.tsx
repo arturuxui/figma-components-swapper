@@ -149,6 +149,7 @@ export function App() {
             onPreview={(groupId, target) => run({ type: 'preview', groupId, target }, 'Примерка…')}
             proposed={proposed}
             onPropose={(ids) => run({ type: 'propose', ids }, 'Черновики…')}
+            onSettle={() => run({ type: 'settle', overrides: overrideChoices }, 'Применяю решения…')}
             overrideChoices={overrideChoices}
             onChooseOverride={(id, choice) =>
               setOverrideChoices((c) => {
@@ -177,7 +178,7 @@ export function App() {
                 Заменить · {places}
               </button>
             )}
-            {applied && !undone && (applied.replaced > 0 || applied.nested > 0) && (
+            {applied && !undone && (applied.replaced > 0 || applied.nested > 0 || applied.overrides.reset > 0 || !!applied.improvements) && (
               <button disabled={!!busy} onClick={() => run({ type: 'undo' }, 'Возвращаю…')}>
                 Отменить
               </button>
