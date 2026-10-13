@@ -52,9 +52,12 @@ interface Props {
   onPreview: (groupId: string, target: TargetRef) => void;
   proposed: Extract<ToUi, { type: 'proposed' }> | null;
   onPropose: (ids: string[]) => void;
+  /** Расхождения с компонентом: id группы расхождений → выбор пользователя. */
+  overrideChoices: Record<string, OverrideChoice>;
+  onChooseOverride: (id: string, choice: OverrideChoice | '') => void;
 }
 
-export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose }: Props) {
+export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose, overrideChoices, onChooseOverride }: Props) {
   const { report, scopeName, unreadable } = scanned;
   // Вложенные повторы и варианты не показываем отдельно: они войдут в черновик внешнего или главного.
   const repeats = scanned.repeats.filter((r) => !r.nestedIn && !r.variantOf);
@@ -64,16 +67,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   // Новый скан — новые повторы.
   useEffect(() => setPicked(defaultPicks()), [scanned.repeats]);
   // Расхождения с компонентом: что с ними делать, решает пользователь (по умолчанию — не решено).
-  const [overrideChoices, setOverrideChoices] = useState<Record<string, OverrideChoice>>({});
-  useEffect(() => setOverrideChoices({}), [scanned.overrides]);
   const overridesOf = (groupId: string) => scanned.overrides.filter((o) => o.groupId === groupId);
-  const chooseOverride = (id: string, choice: OverrideChoice | '') =>
-    setOverrideChoices((c) => {
-      const next = { ...c };
-      if (choice) next[id] = choice;
-      else delete next[id];
-      return next;
-    });
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
@@ -122,7 +116,7 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
                 group={g}
                 overrides={overridesOf(g.id)}
                 overrideChoices={overrideChoices}
-                onChooseOverride={chooseOverride}
+                onChooseOverride={onChooseOverride}
                 match={matches[g.id]}
                 value={decisions[g.id] ?? ''}
                 preview={previews[g.id]}

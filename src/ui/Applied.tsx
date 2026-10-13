@@ -26,6 +26,14 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
         Пропущены места, которые изменились после скана. Отменить можно кнопкой «Отменить» или Ctrl+Z.
         {r.axesMissing ? ` У ${r.axesMissing} мест не все оси варианта нашлись у нашего набора — по ним вариант по умолчанию.` : ''}
       </p>
+      {(r.overrides.kept || r.overrides.reset || r.overrides.variants || r.overrides.undecided) > 0 && (
+        <p class="muted">
+          Расхождения с компонентом: перенесено {r.overrides.kept + r.overrides.variants}
+          {r.overrides.variants ? ` (из них «нужен вариант» — ${r.overrides.variants})` : ''}, как в нашем компоненте — {r.overrides.reset}
+          {r.overrides.undecided ? `, не решено — ${r.overrides.undecided} (как получилось после замены)` : ''}.
+        </p>
+      )}
+      <Issues title="Расхождения не перенеслись — проверьте" items={r.overrides.failed} />
       <Issues title="Пропали тексты — проверьте" items={r.lostTexts} />
       <Issues title="Фреймы: осталось от компонента — проверьте" items={r.leftovers} />
       <Issues title="Ошибки" items={r.errors} />
