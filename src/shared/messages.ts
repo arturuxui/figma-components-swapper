@@ -3,6 +3,7 @@
 import type { ApplyResult } from '../figma/apply';
 import type { IndexSummary, LibraryKind } from '../core/library-index';
 import type { Candidate, MatchResult } from '../core/match';
+import type { OverrideGroup } from '../core/overrides';
 import type { RepeatGroup } from '../core/repeats';
 import type { ScanReport } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
@@ -28,7 +29,7 @@ export type ToUi =
   | { type: 'init'; library: LibraryInfo | null; libraries: LibraryInfo[]; indexes: IndexSummary[] }
   | { type: 'progress'; text: string }
   | { type: 'indexed'; summary: IndexSummary }
-  | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[] }
+  | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
   | { type: 'matched'; product: string | null; products: string[]; matches: Matches }
   | {
       type: 'preview';

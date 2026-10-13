@@ -5,6 +5,7 @@ import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type Libra
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
 import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
 import { shapeOf, signature } from './core/structure';
+import { groupOverrides, type InstanceOverrides, type OverrideGroup } from './core/overrides';
 import { findRepeats, type RepeatGroup } from './core/repeats';
 import { propose } from './figma/propose';
 import { hasVisual, snapshot } from './figma/structure';
@@ -12,6 +13,7 @@ import { screenTrees } from './figma/repeats';
 import { buildReport, type ReportGroup, type ScanReport } from './core/scan-report';
 import { applySwaps, finalizeFrames, undoSwaps } from './figma/apply';
 import { buildLibraryIndex } from './figma/index-library';
+import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
@@ -44,7 +46,30 @@ let last: {
   manual: Map<string, ManualFinding>;
   /** Повторы — кандидаты в новые компоненты (этап 4). */
   repeats: RepeatGroup[];
+  /** Расхождения заменяемых экземпляров со своим компонентом (этап 5). */
+  overrides: OverrideGroup[];
 } | null = null;
+
+/**
+ * Этап 5: реальные расхождения экземпляров, которые заменяем, со своим (старым) компонентом — по группам отчёта.
+ * При замене их судьбу решает пользователь (правило 17 скилла).
+ */
+async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string, { id: string; name: string }>): Promise<OverrideGroup[]> {
+  const out: OverrideGroup[] = [];
+  const total = groups.reduce((n, g) => n + g.nodeIds.length, 0);
+  let done = 0;
+  for (const g of groups) {
+    const items: InstanceOverrides[] = [];
+    for (const id of g.nodeIds) {
+      if (++done % 200 === 0) progress(`Расхождения с компонентами: ${done} из ${total}`);
+      const node = await figma.getNodeByIdAsync(id);
+      if (!node || node.type !== 'INSTANCE') continue;
+      items.push({ nodeId: id, screen: screenOf.get(id) ?? { id: '', name: '' }, diffs: await realOverrides(node) });
+    }
+    out.push(...groupOverrides(g.id, items));
+  }
+  return out;
+}
 
 /** Чужие и локальные экземпляры — по ним угадывается продукт макета. */
 const toReplace = (report: ScanReport) => report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
@@ -103,6 +128,7 @@ async function scan() {
   // Этап 4: повторы, которые не наши компоненты и не их копии, — кандидаты в новые компоненты.
   const ours = [...byName.values()].flat().filter((c) => !guess || c.product === guess);
   const repeats = findRepeats(await screenTrees(roots, progress), new Set(manualGroups.flatMap((g) => g.nodeIds)), ours);
+  const overrides = await overridesOf(toReplace(report), new Map(found.instances.map((f) => [f.nodeId, f.screen])));
   last = {
     report,
     byName,
@@ -111,6 +137,7 @@ async function scan() {
     product: null,
     manual: new Map(manualGroups.map((g) => [g.id, firstOf.get(g.exampleNodeId)!])),
     repeats,
+    overrides,
   };
   post({
     type: 'scanned',
@@ -119,6 +146,7 @@ async function scan() {
     scopeName: scope === 'selection' ? `выделено: ${selection.length}` : figma.currentPage.name,
     unreadable: found.unreadable,
     repeats,
+    overrides,
   });
   sendMatches(guess ?? last.products[0] ?? null);
 }

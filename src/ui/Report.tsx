@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'preact/hooks';
 import { resolveChoice, type Candidate, type MatchStatus } from '../core/match';
+import { CHOICE_LABEL, diffText, type OverrideChoice, type OverrideGroup } from '../core/overrides';
 import { REPEAT_MIN_PLACES, REPEAT_MIN_SCREENS, type RepeatGroup } from '../core/repeats';
 import type { Origin, ReportGroup } from '../core/scan-report';
 import type { VariantPick } from '../core/variants';
@@ -62,6 +63,17 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   const [picked, setPicked] = useState<string[]>(defaultPicks);
   // Новый скан — новые повторы.
   useEffect(() => setPicked(defaultPicks()), [scanned.repeats]);
+  // Расхождения с компонентом: что с ними делать, решает пользователь (по умолчанию — не решено).
+  const [overrideChoices, setOverrideChoices] = useState<Record<string, OverrideChoice>>({});
+  useEffect(() => setOverrideChoices({}), [scanned.overrides]);
+  const overridesOf = (groupId: string) => scanned.overrides.filter((o) => o.groupId === groupId);
+  const chooseOverride = (id: string, choice: OverrideChoice | '') =>
+    setOverrideChoices((c) => {
+      const next = { ...c };
+      if (choice) next[id] = choice;
+      else delete next[id];
+      return next;
+    });
   const t = report.totals;
   const toReplace = report.groups.filter((g) => !g.detached && !g.manual && g.origin !== 'ours');
   const detached = report.groups.filter((g) => g.detached);
@@ -108,6 +120,9 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
               <Row
                 key={g.id}
                 group={g}
+                overrides={overridesOf(g.id)}
+                overrideChoices={overrideChoices}
+                onChooseOverride={chooseOverride}
                 match={matches[g.id]}
                 value={decisions[g.id] ?? ''}
                 preview={previews[g.id]}
@@ -250,9 +265,13 @@ interface RowProps {
   busy: boolean;
   onDecide: (key: string) => void;
   onPreview: (target: TargetRef) => void;
+  /** Расхождения экземпляров группы со своим компонентом (этап 5). */
+  overrides?: OverrideGroup[];
+  overrideChoices?: Record<string, OverrideChoice>;
+  onChooseOverride?: (id: string, choice: OverrideChoice | '') => void;
 }
 
-function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: RowProps) {
+function Row({ group: g, match, value, preview, busy, onDecide, onPreview, overrides, overrideChoices, onChooseOverride }: RowProps) {
   const status = match ? STATUS[match.status] : null;
   const choice = match && value ? resolveChoice(match.alternatives, value) : null;
   const owner = choice?.owner;
@@ -325,7 +344,56 @@ function Row({ group: g, match, value, preview, busy, onDecide, onPreview }: Row
           <PreviewNotes preview={shown} />
         </div>
       )}
+      {overrides && overrides.length > 0 && onChooseOverride && (
+        <Overrides list={overrides} choices={overrideChoices ?? {}} busy={busy} onChoose={onChooseOverride} />
+      )}
     </li>
+  );
+}
+
+/**
+ * Расхождения экземпляров с их компонентом (правило 17 скилла): было → стало, сколько мест, пример и выбор —
+ * ошибка макета, перенести или нужен вариант. Сами не решаем.
+ */
+function Overrides({ list, choices, busy, onChoose }: { list: OverrideGroup[]; choices: Record<string, OverrideChoice>; busy: boolean; onChoose: (id: string, choice: OverrideChoice | '') => void }) {
+  const places = list.reduce((n, o) => n + o.count, 0);
+  const open = list.filter((o) => !choices[o.id]).length;
+  return (
+    <details class="overrides">
+      <summary>
+        Расхождения с компонентом · {places} мест{open ? ` · не решено: ${open}` : ''}
+      </summary>
+      <ul class="rows overrides-list">
+        {list.map((o) => (
+          <li key={o.id}>
+            {o.diffs.map((d) => (
+              <div class="muted" key={diffText(d)}>
+                {diffText(d)}
+              </div>
+            ))}
+            <div class="line">
+              <span class="muted">
+                ×{o.count} · экр. {o.screens}
+              </span>
+              <button class="link" title={o.exampleScreen} onClick={() => send({ type: 'focus', nodeId: o.exampleNodeId })}>
+                Показать
+              </button>
+              <button class="link" onClick={() => send({ type: 'select', nodeIds: o.nodeIds })}>
+                Выделить все
+              </button>
+              <select class="grow" value={choices[o.id] ?? ''} disabled={busy} onChange={(e) => onChoose(o.id, (e.target as HTMLSelectElement).value as OverrideChoice | '')}>
+                <option value="">— не решено —</option>
+                {(Object.keys(CHOICE_LABEL) as OverrideChoice[]).map((c) => (
+                  <option key={c} value={c}>
+                    {CHOICE_LABEL[c]}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </details>
   );
 }
 
