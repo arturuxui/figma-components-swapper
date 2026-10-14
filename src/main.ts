@@ -16,6 +16,7 @@ import { buildLibraryIndex } from './figma/index-library';
 import { proposeImprovements, type Improvement } from './figma/improve';
 import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
+import { chooseComponent, importTarget } from './figma/swap';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
 import type { LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
@@ -55,11 +56,19 @@ let last: {
  * Этап 5: реальные расхождения экземпляров, которые заменяем, со своим (старым) компонентом — по группам отчёта.
  * При замене их судьбу решает пользователь (правило 17 скилла).
  */
-async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string, { id: string; name: string }>, topOnly = false): Promise<OverrideGroup[]> {
+async function overridesOf(
+  groups: readonly ReportGroup[],
+  screenOf: Map<string, { id: string; name: string }>,
+  topOnly = false,
+  targetOf: (g: ReportGroup) => Candidate | null = () => null,
+): Promise<OverrideGroup[]> {
   const out: OverrideGroup[] = [];
   const total = groups.reduce((n, g) => n + g.nodeIds.length, 0);
   let done = 0;
   for (const g of groups) {
+    // Есть точная пара — сравниваем с нашим компонентом (тем вариантом, что поставит замена).
+    const target = targetOf(g);
+    const ours = target ? await importTarget(target).catch(() => null) : null;
     const items: InstanceOverrides[] = [];
     for (const id of g.nodeIds) {
       if (++done % 200 === 0) progress(`Расхождения с компонентами: ${done} из ${total}`);
@@ -67,7 +76,8 @@ async function overridesOf(groups: readonly ReportGroup[], screenOf: Map<string,
       if (!node || node.type !== 'INSTANCE') continue;
       // Наш экземпляр внутри другого экземпляра — часть того компонента, его расхождения считаются у внешнего.
       if (topOnly && insideInstance(node)) continue;
-      items.push({ nodeId: id, screen: screenOf.get(id) ?? { id: '', name: '' }, diffs: await realOverrides(node) });
+      const against = ours ? chooseComponent(ours, node).component : undefined;
+      items.push({ nodeId: id, screen: screenOf.get(id) ?? { id: '', name: '' }, diffs: await realOverrides(node, against) });
     }
     out.push(...groupOverrides(g.id, items));
   }
@@ -140,7 +150,11 @@ async function scan() {
   const ours = [...byName.values()].flat().filter((c) => !guess || c.product === guess);
   const repeats = findRepeats(await screenTrees(roots, progress), new Set(manualGroups.flatMap((g) => g.nodeIds)), ours);
   const screenOf = new Map(found.instances.map((f) => [f.nodeId, f.screen]));
-  const overrides = [...(await overridesOf(toReplace(report), screenOf)), ...(await overridesOf(oursGroups(report), screenOf, true))];
+  const exact = (g: ReportGroup) => {
+    const m = matchByName(g.name, g, byName, guess ?? undefined);
+    return m.status === 'exact' && m.target ? m.target : null;
+  };
+  const overrides = [...(await overridesOf(toReplace(report), screenOf, false, exact)), ...(await overridesOf(oursGroups(report), screenOf, true))];
   last = {
     report,
     byName,

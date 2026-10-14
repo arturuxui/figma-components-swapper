@@ -11,7 +11,7 @@ import { matchByName, type Candidate } from '../core/match';
 import type { OverrideChoice } from '../core/overrides';
 import { applyOverride, captureOverrides, restoreOverrides, type CapturedOverride } from './overrides';
 import { replaceFrame, type FrameContext } from './replace-frame';
-import { swapInstance } from './swap';
+import { chooseComponent, importTarget, swapInstance } from './swap';
 
 export interface ApplyGroup {
   name: string;
@@ -148,7 +148,9 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     const previous = await readMain(node);
     if (!previous) return false;
     const choice = ctx.overrides?.get(node.id);
-    const captured = choice === undefined ? undefined : await captureOverrides(node);
+    // Запоминаем только то, что после замены будет выглядеть иначе, чем наш компонент.
+    const against = choice === undefined ? undefined : chooseComponent(await importTarget(target), node).component;
+    const captured = choice === undefined ? undefined : await captureOverrides(node, against);
     const outcome = await swapInstance(node, target);
     journal.push({ kind: 'swap', node, previous, captured });
     if (captured?.length) await settleOverrides(node, name, captured, choice ?? null);

@@ -87,6 +87,55 @@ async function value(node: SceneNode, field: OverrideField): Promise<string> {
   }
 }
 
+const round2 = (n: number) => Math.round(n * 100) / 100;
+
+function paintLook(list: unknown): string {
+  if (typeof list === 'symbol') return 'mixed';
+  const shown = (Array.isArray(list) ? (list as Paint[]) : []).filter((p) => p.visible !== false);
+  return JSON.stringify(
+    shown.map((p) =>
+      p.type === 'SOLID'
+        ? [hex(p.color), round2(p.opacity ?? 1)]
+        : p.type === 'IMAGE'
+          ? [p.type, p.imageHash]
+          : [p.type, 'gradientStops' in p ? p.gradientStops.map((s) => [hex(s.color), round2(s.color.a), round2(s.position)]) : []],
+    ),
+  );
+}
+
+/**
+ * Как поле выглядит — без имён стилей и переменных. Расхождение — только если отличается вид: смена стиля на
+ * равный по виду (старый стиль → наш после Style Migration, опыт 2026-10-14 на «Copy_New Driver DEV») — не решение
+ * дизайнера, а перевод стилей; его делает Style Migration (решение инженера «б»).
+ */
+function look(node: SceneNode, field: OverrideField): string {
+  const n = node as SceneNode & Record<string, unknown>;
+  switch (field) {
+    case 'fill':
+    case 'textColor':
+      if (node.type === 'TEXT' && typeof node.fills === 'symbol')
+        return JSON.stringify(node.getStyledTextSegments(['fills']).map((s) => paintLook(s.fills)));
+      return paintLook(n.fills);
+    case 'stroke':
+      return paintLook(n.strokes);
+    case 'effect':
+      return JSON.stringify(
+        (Array.isArray(n.effects) ? (n.effects as Effect[]) : [])
+          .filter((e) => e.visible)
+          .map((e) => [e.type, 'radius' in e ? round2(e.radius) : 0, 'color' in e ? [hex(e.color), round2(e.color.a)] : 0, 'offset' in e ? [e.offset.x, e.offset.y] : 0, 'spread' in e ? e.spread : 0]),
+      );
+    case 'textStyle':
+      if (node.type !== 'TEXT') return '';
+      return JSON.stringify(
+        node
+          .getStyledTextSegments(['fontName', 'fontSize', 'lineHeight', 'letterSpacing'])
+          .map((s) => [s.fontName.family, s.fontName.style, s.fontSize, JSON.stringify(s.lineHeight), JSON.stringify(s.letterSpacing)]),
+      );
+    default:
+      return '';
+  }
+}
+
 /** Путь индексов от корня экземпляра до слоя (по id: обёртки узлов в API не равны по ссылке). */
 function pathOf(node: BaseNode, root: BaseNode): number[] | null {
   const path: number[] = [];
@@ -124,8 +173,36 @@ interface FoundOverride {
   diff: OverrideDiff;
 }
 
-/** Реальные расхождения со слоями, на которых они найдены. */
-async function findOverrides(inst: InstanceNode): Promise<FoundOverride[]> {
+/**
+ * Слой в другом дереве (наш компонент), соответствующий слою экземпляра: корень — корень, иначе слой того же типа
+ * с тем же именем (без эмодзи и знаков), иначе тот же по счёту того же типа.
+ */
+function counterpart(root: SceneNode, node: SceneNode, inst: InstanceNode): SceneNode | null {
+  if (node.id === inst.id) return root;
+  const mine = layers(inst, node.type);
+  const theirs = layers(root, node.type);
+  const named = theirs.filter((n) => bare(n.name) === bare(node.name));
+  if (named.length) {
+    const i = mine.filter((n) => bare(n.name) === bare(node.name)).findIndex((n) => n.id === node.id);
+    return named[Math.min(Math.max(i, 0), named.length - 1)];
+  }
+  return theirs[mine.findIndex((n) => n.id === node.id)] ?? null;
+}
+
+const LOOKS = new Set<OverrideField>(['fill', 'textColor', 'stroke', 'effect', 'textStyle']);
+
+/** Поле выглядит одинаково (для цветов, шрифтов и теней — по виду, без имён стилей). */
+async function same(a: SceneNode, b: SceneNode, field: OverrideField): Promise<boolean> {
+  if (LOOKS.has(field)) return look(a, field) === look(b, field);
+  return (await value(a, field)) === (await value(b, field));
+}
+
+/**
+ * Реальные расхождения со слоями, на которых они найдены: поле помечено, выглядит иначе, чем в своём компоненте,
+ * и — если задан `against` (наш компонент, на который заменяем) — иначе, чем в нашем. Тогда «было» — значение
+ * нашего компонента: пользователь решает, что будет после замены (решение инженера 2026-10-14).
+ */
+async function findOverrides(inst: InstanceNode, against?: ComponentNode): Promise<FoundOverride[]> {
   const relevant = inst.overrides.filter((o) => o.overriddenFields.some((f) => f in FIELDS));
   if (!relevant.length) return [];
   const main = await mainOf(inst);
@@ -146,16 +223,25 @@ async function findOverrides(inst: InstanceNode): Promise<FoundOverride[]> {
       const key = `${node.id}|${field}`;
       if (seen.has(key)) continue;
       seen.add(key);
-      const [from, to] = await Promise.all([value(ref, field), value(node, field)]);
+      // Тот же вид (другой стиль с тем же цветом или шрифтом) — не расхождение.
+      if (await same(ref, node, field)) continue;
+      let base: SceneNode = ref;
+      if (against) {
+        const ours = counterpart(against, node, inst);
+        // В нашем компоненте такого слоя нет или он уже выглядит так же — после замены вопроса нет.
+        if (!ours || (await same(ours, node, field))) continue;
+        base = ours;
+      }
+      const [from, to] = await Promise.all([value(base, field), value(node, field)]);
       if (from !== to) out.push({ node, field, diff: { layer: node.id === inst.id ? 'компонент' : node.name, field, from, to } });
     }
   }
   return out;
 }
 
-/** Реальные расхождения экземпляра с его компонентом. */
-export async function realOverrides(inst: InstanceNode): Promise<OverrideDiff[]> {
-  return (await findOverrides(inst)).map((f) => f.diff);
+/** Реальные расхождения экземпляра с его компонентом (и с нашим, если задан `against`). */
+export async function realOverrides(inst: InstanceNode, against?: ComponentNode): Promise<OverrideDiff[]> {
+  return (await findOverrides(inst, against)).map((f) => f.diff);
 }
 
 // --- Применение выбора при замене (этап 5, шаг 2) ---
@@ -248,13 +334,13 @@ export interface CapturedOverride {
   values: FieldValues;
 }
 
-const layers = (inst: InstanceNode, type: NodeType) => inst.findAll((n) => n.type === type) as SceneNode[];
+const layers = (root: SceneNode, type: NodeType) => ('findAll' in root ? (root.findAll((n) => n.type === type) as SceneNode[]) : []);
 const bare = (s: string) => s.replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase();
 
 /** Запомнить реальные расхождения экземпляра перед заменой. */
-export async function captureOverrides(inst: InstanceNode): Promise<CapturedOverride[]> {
+export async function captureOverrides(inst: InstanceNode, against?: ComponentNode): Promise<CapturedOverride[]> {
   const out: CapturedOverride[] = [];
-  for (const { node, field, diff } of await findOverrides(inst)) {
+  for (const { node, field, diff } of await findOverrides(inst, against)) {
     const root = node.id === inst.id;
     const same = root ? [] : layers(inst, node.type);
     out.push({
