@@ -1,6 +1,8 @@
 // Контент экземпляра до и после замены: видимые тексты. Без Figma API — узел описан по форме,
 // узлы Plugin API ей подходят. Часть движка замены.
 
+import type { TextSlot } from './structure';
+
 export interface ContentNode {
   type: string;
   visible?: boolean;
@@ -33,4 +35,27 @@ export function lostTexts(before: readonly string[], after: readonly string[]): 
     else lost.push(text);
   }
   return lost;
+}
+
+/**
+ * Тексты, пропавшие при замене (слой лежит в другом месте, чем у нашего компонента), — обратно в слои нашего
+ * компонента с тем же именем, где осталась заглушка (текста нет среди прежних). Только по однозначному имени:
+ * по порядку не раскладываем — на клавиатуре Rider буквы разъехались по чужим клавишам (прогон «5б»).
+ * Сохранённые заменой тексты не трогаем.
+ */
+export function restoreTexts(before: readonly TextSlot[], after: readonly TextSlot[]): { id: string; text: string }[] {
+  const lost = lostTexts(before.map((t) => t.text), after.map((t) => t.text));
+  if (!lost.length) return [];
+  const was = new Set(before.map((t) => t.text));
+  const once = (list: readonly TextSlot[], name: string) => list.filter((t) => t.name === name).length === 1;
+  const out: { id: string; text: string }[] = [];
+  for (const slot of after) {
+    if (!slot.id || was.has(slot.text) || !once(after, slot.name) || !once(before, slot.name)) continue;
+    const source = before.find((t) => t.name === slot.name)!;
+    const i = lost.indexOf(source.text);
+    if (i < 0) continue;
+    lost.splice(i, 1);
+    out.push({ id: slot.id, text: source.text });
+  }
+  return out;
 }

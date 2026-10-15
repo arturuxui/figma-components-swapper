@@ -143,3 +143,26 @@ describe('pickVariant', () => {
     expect(pickVariant(null, variants)).toEqual({ index: -1, matched: 0, unmatched: [] });
   });
 });
+
+describe('известные пары с разными именами', () => {
+  const riderComponents = index('rider-components', 'rider', 'components', {
+    entries: [
+      { key: 'r-sb', name: 'Status Bar iOS', width: 390, height: 54, page: 'System Elements' },
+      { key: 'r-kb', name: 'Keyboard - iPhone', width: 390, height: 336, page: 'System Elements' },
+    ],
+  });
+  const both = buildCandidates([driverComponents, riderComponents]);
+
+  it('старое имя находит наш компонент своего продукта', () => {
+    expect(matchByName('status bar', { width: 390, height: 54 }, both, 'rider')).toMatchObject({ status: 'exact', target: { key: 'r-sb' } });
+    expect(matchByName('iOS / System / Keyboard / Light', { width: 390, height: 336 }, both, 'rider')).toMatchObject({ status: 'exact', target: { key: 'r-kb' } });
+  });
+
+  it('в другом продукте пара не действует', () => {
+    expect(matchByName('status bar', { width: 390, height: 54 }, both, 'driver').status).toBe('none');
+  });
+
+  it('своё имя по-прежнему находится', () => {
+    expect(matchByName('Status Bar iOS', { width: 390, height: 54 }, both, 'rider').target?.key).toBe('r-sb');
+  });
+});
