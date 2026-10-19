@@ -7,6 +7,15 @@ export const NAME_ALIASES: Readonly<Record<string, Readonly<Record<string, reado
     'Status Bar iOS': ['status bar'],
     'Home Indicator iOS': ['home indicator'],
     'Keyboard - iPhone': ['iOS / System / Keyboard / Light'],
+    // Таблица кандидатов по Where (решение инженера 2026-10-19).
+    'Button Floating': ['floating'],
+    'Search Capsule': ['searchfilled', 'Search'],
+    'Search Field': ['Search'],
+    // Навбар у нас — часть NavBar Complex (сам .NavBar скрытый).
+    'NavBar Complex': ['NavBar', 'Top Actions'],
+    'Button Rounded': ['Badge Map'],
+    'Button Standart': ['standard'],
+    'Right Element / Change Stops': ['Change Stops'],
   },
 };
 

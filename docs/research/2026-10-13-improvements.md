@@ -204,6 +204,14 @@ Migration — пустые переопределения после замен�
 скрытые компоненты. Без кандидата: `service` и его части, `Map`, `Tab`/`tabbar`, `Cards`, `Car`, `Cursor`; иконки —
 этап 3.
 
+Решения инженера по таблице (2026-10-19), выучено в `src/core/aliases.ts` (Rider): `floating` → `Button Floating`;
+`searchfilled` → `Search Capsule`; `Search` → `Search Field` или `Search Capsule` (обе подходят по размеру — выбирает
+дизайнер, ближайшая первой); `NavBar` и `Top Actions` → `NavBar Complex` (наш навбар — его часть; `Top Actions` —
+две кнопки сверху с отступом под статус-бар, 112 против 118); `Badge Map` → `Button Rounded` (не `Badge`);
+`standard` → `Button Standart`; `Change Stops` → `Right Element / Change Stops`. `⠿ Divider` уже подбирался к
+`Divider` по имени (другой размер — выбор дизайнера). Нет: `Map FAB` (все места скрыты — скрытое не трогаем),
+`NavBarContainer` (таб-бар), `address`, `dragger` (часть Bottom sheet), `Search Actions` (часть Search Field).
+
 ## Вывод
 
 Буквально по «2а» (копия объективно лучше нашего) на «New Driver DEV» находок нет — наши компоненты качественнее
