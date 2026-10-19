@@ -5,6 +5,7 @@
 // тогда выбираем по размеру (правило 27 скилла: проверять назначение, а не только имя), а если размер
 // не разводит — решает дизайнер.
 
+import { aliasesOf } from './aliases';
 import type { LibraryIndex, LibraryKind } from './library-index';
 import type { Shape } from './structure';
 
@@ -63,15 +64,19 @@ export function resolveChoice(alternatives: readonly Candidate[], key: string): 
   return null;
 }
 
-/** Имя → кандидаты из всех индексов. */
+/** Имя → кандидаты из всех индексов; наш компонент лежит и под старыми именами из известных пар. */
 export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, Candidate[]> {
   const byName = new Map<string, Candidate[]>();
-  const push = (c: Candidate) => {
-    const key = normalizeName(c.name);
+  const add = (key: string, c: Candidate) => {
     if (!key) return;
     const list = byName.get(key) ?? [];
     list.push(c);
     byName.set(key, list);
+  };
+  // Свой ключ и старые имена из известных пар (`aliases.ts`).
+  const push = (c: Candidate) => {
+    add(normalizeName(c.name), c);
+    for (const old of aliasesOf(c.product, c.name, normalizeName)) add(normalizeName(old), c);
   };
   for (const index of indexes) {
     const base = { libraryId: index.libraryId, product: index.product, kind: index.kind };
