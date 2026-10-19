@@ -162,6 +162,18 @@ describe('известные пары с разными именами', () => {
     expect(matchByName('status bar', { width: 390, height: 54 }, both, 'driver').status).toBe('none');
   });
 
+  it('одно старое имя — к двум нашим: выбор по размеру, а если оба подходят — дизайнер', () => {
+    const search = index('rider-components', 'rider', 'components', {
+      entries: [
+        { key: 'r-field', name: 'Search Field', width: 390, height: 60, page: 'Search' },
+        { key: 'r-capsule', name: 'Search Capsule', width: 384, height: 52, page: 'Search' },
+      ],
+    });
+    const m = matchByName('Search', { width: 390, height: 62 }, buildCandidates([search]), 'rider');
+    expect(m.status).toBe('ambiguous');
+    expect(m.alternatives[0].key).toBe('r-field');
+  });
+
   it('своё имя по-прежнему находится', () => {
     expect(matchByName('Status Bar iOS', { width: 390, height: 54 }, both, 'rider').target?.key).toBe('r-sb');
   });
