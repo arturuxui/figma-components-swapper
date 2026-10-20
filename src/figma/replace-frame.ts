@@ -4,9 +4,9 @@
 // окончательно он удаляется при следующем скане, применении или закрытии плагина (`finalizeFrames`).
 
 import { matchByName, type Candidate } from '../core/match';
-import { mapIcons, mapTexts, pickByStructure, signature, type Signature } from '../core/structure';
+import { mapIcons, mapTexts, pickByStructure, signature } from '../core/structure';
 import { snapshot } from './structure';
-import { importTarget } from './swap';
+import { importTarget, variantSignature } from './swap';
 
 /** Метка скрытого исходного фрейма: значение — id экземпляра, который его заменил. */
 export const REPLACED_MARK = 'cs-replaced';
@@ -28,15 +28,6 @@ export interface FrameContext {
   product?: string;
 }
 
-const signatures = new Map<string, Promise<Signature>>();
-const variantSignature = (c: ComponentNode) => {
-  let p = signatures.get(c.id);
-  if (!p) {
-    p = snapshot(c).then(signature);
-    signatures.set(c.id, p);
-  }
-  return p;
-};
 
 async function setText(id: string, text: string) {
   const node = await figma.getNodeByIdAsync(id);

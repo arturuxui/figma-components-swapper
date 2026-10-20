@@ -76,7 +76,7 @@ async function overridesOf(
       if (!node || node.type !== 'INSTANCE') continue;
       // Наш экземпляр внутри другого экземпляра — часть того компонента, его расхождения считаются у внешнего.
       if (topOnly && insideInstance(node)) continue;
-      const against = ours ? chooseComponent(ours, node).component : undefined;
+      const against = ours ? (await chooseComponent(ours, node)).component : undefined;
       items.push({ nodeId: id, screen: screenOf.get(id) ?? { id: '', name: '' }, diffs: await realOverrides(node, against) });
     }
     out.push(...groupOverrides(g.id, items));

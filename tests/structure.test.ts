@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isOutlinedText, mapIcons, mapTexts, pickByStructure, shapeOf, signature, structureScore, type StructNode } from '../src/core/structure';
+import { iconsToRestore, isOutlinedText, mapIcons, mapTexts, pickByStructure, shapeOf, signature, structureScore, type StructNode } from '../src/core/structure';
 
 const text = (name: string, characters: string, visible = true): StructNode => ({ type: 'TEXT', name, characters, visible, width: 100, height: 20 });
 const icon = (mainName: string, visible = true): StructNode => ({ type: 'INSTANCE', name: 'icon', mainName, visible, width: 24, height: 24 });
@@ -101,5 +101,15 @@ describe('текст в кривых (маска под анимацию бли�
     expect(isOutlinedText({ ...outlined, width: 24, height: 24 })).toBe(false);
     expect(isOutlinedText({ ...outlined, width: 300, height: 60 })).toBe(false);
     expect(isOutlinedText(outlined)).toBe(true);
+  });
+});
+
+describe('iconsToRestore', () => {
+  it('иконок столько же — отличающуюся вернуть по месту (Alert: plane → иконка по умолчанию)', () => {
+    expect(iconsToRestore(['plane', 'close_round'], ['falcon', 'close_round'])).toEqual(['plane', null]);
+  });
+
+  it('иконок другое число — порядок ничего не значит, не трогаем', () => {
+    expect(iconsToRestore(['plane'], ['falcon', 'close_round'])).toEqual([null, null]);
   });
 });
