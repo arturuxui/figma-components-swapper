@@ -201,6 +201,24 @@ describe('matchIcon — иконки по рисунку', () => {
   it('непохожий рисунок — none', () => {
     expect(matchIcon({ print: printIcon([{ d: 'M0 0L24 0L0 24Z' }]), multicolor: false, name: 'x' }, all).status).toBe('none');
   });
+  describe('одноимённая иконка — первой', () => {
+    const frame = (w: number) => `M2 2H22V22H2ZM${2 + w} ${2 + w}H${22 - w}V${22 - w}H${2 + w}Z`;
+    const lib = (waitDrawing: string) =>
+      iconCandidates(buildCandidates([index('rider-icons', 'rider', 'icons', { entries: [entry('i-wait', 'ic_wait', waitDrawing, true), entry('i-parking', 'ic_parking', 'M2 2H22V22H2Z')] })]), 'rider');
+    const layout = (name: string) => ({ print: printIcon([{ d: frame(6), evenOdd: true }]), multicolor: false, name });
+
+    it('похожа меньше чужой — всё равно первая, решает дизайнер', () => {
+      const m = matchIcon(layout('ic_wait'), lib(frame(4)));
+      expect(m).toMatchObject({ status: 'shape', target: { key: 'i-wait' } });
+      expect(m.alternatives.map((c) => c.key)).toEqual(['i-wait', 'i-parking']);
+    });
+    it('имя сравнивается без приставок: «Icon / Wait» = «ic_wait»', () => {
+      expect(matchIcon(layout('Icon / Wait'), lib(frame(4))).target?.key).toBe('i-wait');
+    });
+    it('совсем другой рисунок — одноимённую не предлагаем первой', () => {
+      expect(matchIcon(layout('Icon / Wait'), lib(frame(2))).target?.key).toBe('i-parking');
+    });
+  });
   it('иконки другого продукта не участвуют', () => {
     expect(iconCandidates(buildCandidates([icons]), 'driver')).toEqual([]);
   });

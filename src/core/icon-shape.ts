@@ -303,7 +303,17 @@ export interface IconMatch {
   nearest: { candidate: IconCandidate; similarity: number }[];
 }
 
-const bareName = (s: string) => (s.split('/').pop() ?? s).toLowerCase().replace(/^(ic|icon)[_\s-]+/, '').replace(/[_\s-]*\d+(px)?$/, '').replace(/[^\p{L}\p{N}]+/gu, '');
+/**
+ * Имя иконки без пути, приставок и приписок вида: «Icon / Adress», «ic_adress_24» → «adress»; «ic_call_fill»,
+ * «ic_mastercard_color» → «call», «mastercard» (в библиотеке иконки переименовывают, добавляя вид).
+ */
+export const bareName = (s: string) =>
+  (s.split('/').pop() ?? s)
+    .toLowerCase()
+    .replace(/^(ic|icon)[_\s-]+/, '')
+    .replace(/[_\s-]*\d+(px)?$/, '')
+    .replace(/[_\s-]+(fill|filled|outline|outlined|stroke|color)$/, '')
+    .replace(/[^\p{L}\p{N}]+/gu, '');
 
 /**
  * Наша иконка для рисунка из макета. Среди двойников лучшей формы — ближе по размеру рисунка, потом с тем же
