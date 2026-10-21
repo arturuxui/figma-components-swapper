@@ -60,17 +60,29 @@ let last: {
 
 /** Размер иконки в макете (как у плагина на этапе 1 — до 48 px). */
 const ICON_MAX = 48;
+/** Сколько экземпляров группы просмотреть в поисках непустого рисунка. */
+const EXAMPLES_MAX = 20;
 
 /** Рисунок примера группы — для групп размером с иконку, которые можно заменить экземпляром. */
 async function layoutIcons(groups: readonly ReportGroup[]): Promise<Map<string, LayoutIcon>> {
   const out = new Map<string, LayoutIcon>();
   for (const g of groups) {
     if (g.detached || g.manual || Math.max(g.width, g.height) > ICON_MAX || Math.min(g.width, g.height) < 8) continue;
-    const node = await figma.getNodeByIdAsync(g.exampleNodeId);
-    if (!node || node.type !== 'INSTANCE') continue;
-    const paths = iconPaths(node);
-    if (!paths.length) continue;
-    out.set(g.id, { print: printIcon(paths), glyph: glyphOf(paths), multicolor: iconColor(node).multicolor, name: g.name });
+    // Пример бывает пустым (скрыт, без слоёв — замер Rider: ic_add_circle) — берём рисунок у следующих,
+    // а если пусты все — у их главного компонента.
+    let first: InstanceNode | null = null;
+    for (const id of g.nodeIds.slice(0, EXAMPLES_MAX)) {
+      const node = await figma.getNodeByIdAsync(id);
+      if (!node || node.type !== 'INSTANCE') continue;
+      first ??= node;
+      const paths = iconPaths(node);
+      if (!paths.length) continue;
+      out.set(g.id, { print: printIcon(paths), glyph: glyphOf(paths), multicolor: iconColor(node).multicolor, name: g.name });
+      break;
+    }
+    const main = !out.has(g.id) && first ? await first.getMainComponentAsync().catch(() => null) : null;
+    const paths = main ? iconPaths(main) : [];
+    if (main && paths.length) out.set(g.id, { print: printIcon(paths), glyph: glyphOf(paths), multicolor: iconColor(main).multicolor, name: g.name });
   }
   return out;
 }

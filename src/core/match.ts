@@ -6,7 +6,7 @@
 // не разводит — решает дизайнер.
 
 import { aliasesOf } from './aliases';
-import { ICON_SIMILAR, ICON_SURE, iconSimilarity, rankIcons, unpackPrint, type IconPrint } from './icon-shape';
+import { bareName, ICON_SIMILAR, ICON_SURE, iconSimilarity, rankIcons, unpackPrint, type IconPrint } from './icon-shape';
 import type { LibraryIndex, LibraryKind } from './library-index';
 import type { Shape } from './structure';
 
@@ -214,13 +214,35 @@ export function matchIcon(layout: LayoutIcon, candidates: readonly Candidate[]):
     candidates.map((c) => ({ key: c.key, name: c.name, print: c.icon!.print, glyph: c.icon!.glyph, multicolor: c.icon!.multicolor })),
     { name: layout.name, glyph: layout.glyph, multicolor: layout.multicolor },
   );
-  const alternatives = m.nearest.filter((n) => n.similarity >= ICON_SIMILAR - 0.1).map((n) => byKey.get(n.candidate.key)!);
+  const alternatives = m.nearest.filter((n) => n.similarity >= ICON_NAMESAKE).map((n) => byKey.get(n.candidate.key)!);
+  // Одноимённая (без приставок «ic_», «Icon /»): если рисунок хоть немного похож — она первая в списке, даже когда
+  // чужой рисунок ближе (замер Rider: «ic_wait» 16 px → наш ic_wait 0.86, а ic_parking 0.89). Решает дизайнер.
+  const namesake = namesakeOf(layout, candidates);
+  if (namesake && namesake.c.key !== m.target?.key) {
+    return { status: 'shape', target: namesake.c, score: namesake.similarity, alternatives: [namesake.c, ...alternatives.filter((c) => c.key !== namesake.c.key)] };
+  }
   if (m.status === 'none' || !m.target) return { status: 'none', alternatives };
   const target = byKey.get(m.target.key)!;
   // Многоцветная (своя или наша): цвета — часть рисунка, по одному силуэту не решаем (замер: кольцо адреса
   // и цветная монета совпали силуэтом на 100 %) — только предложение.
   const sure = m.similarity >= ICON_SURE && !m.disputed && !layout.multicolor && !target.icon?.multicolor;
   return { status: sure ? 'drawn' : 'shape', target, score: m.similarity, alternatives: [target, ...alternatives.filter((c) => c.key !== target.key)] };
+}
+
+/** Порог «хоть немного похож» для одноимённой иконки и для списка ближайших по рисунку. */
+export const ICON_NAMESAKE = ICON_SIMILAR - 0.1;
+
+/** Самая похожая по рисунку из одноимённых иконок (имя без приставок), если похожа не меньше ICON_NAMESAKE. */
+function namesakeOf(layout: LayoutIcon, candidates: readonly Candidate[]): { c: Candidate; similarity: number } | undefined {
+  const want = bareName(layout.name);
+  if (!want) return undefined;
+  let best: { c: Candidate; similarity: number } | undefined;
+  for (const c of candidates) {
+    if (bareName(c.name) !== want || (!layout.multicolor && c.icon!.multicolor)) continue;
+    const similarity = iconSimilarity(layout.print, c.icon!.print);
+    if (similarity >= ICON_NAMESAKE && (!best || similarity > best.similarity)) best = { c, similarity };
+  }
+  return best;
 }
 
 /** Тот же ли рисунок у иконки в индексе и у её актуальной версии из библиотеки. */

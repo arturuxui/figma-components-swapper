@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { flattenPath, iconSimilarity, packPrint, printIcon, rankIcons, unpackPrint, type IconCandidate } from '../src/core/icon-shape';
+import { bareName, flattenPath, iconSimilarity, packPrint, printIcon, rankIcons, unpackPrint, type IconCandidate } from '../src/core/icon-shape';
 
 const square = (x: number, y: number, s: number) => `M${x} ${y}L${x + s} ${y}L${x + s} ${y + s}L${x} ${y + s}Z`;
 const ring = 'M12 2C17.52 2 22 6.48 22 12C22 17.52 17.52 22 12 22C6.48 22 2 17.52 2 12C2 6.48 6.48 2 12 2ZM12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z';
@@ -80,5 +80,17 @@ describe('packPrint', () => {
     const packed = packPrint(p);
     expect(packed.length).toBe(684);
     expect(iconSimilarity(p, unpackPrint(packed))).toBeGreaterThan(0.97);
+  });
+});
+
+describe('bareName — имя иконки для сравнения', () => {
+  it('без пути, приставок, размера и приписки вида', () => {
+    expect(bareName('Icon / Adress')).toBe('adress');
+    expect(bareName('ic_adress_24')).toBe('adress');
+    expect(bareName('Icon / Map / natural main')).toBe(bareName('ic_natural_main'));
+    expect(bareName('ic_call_fill')).toBe('call');
+    expect(bareName('ic_mastercard_color')).toBe('mastercard');
+    expect(bareName('ic_star_outlined')).toBe('star');
+    expect(bareName('ic_call_off_outline')).toBe('calloff');
   });
 });
