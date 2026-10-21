@@ -6,6 +6,7 @@
 // не разводит — решает дизайнер.
 
 import { aliasesOf } from './aliases';
+import { ICON_SIMILAR, ICON_SURE, iconSimilarity, rankIcons, unpackPrint, type IconPrint } from './icon-shape';
 import type { LibraryIndex, LibraryKind } from './library-index';
 import type { Shape } from './structure';
 
@@ -50,6 +51,8 @@ export interface Candidate {
   variants?: { key: string; name: string; shape?: Shape }[];
   /** Устройство одиночного компонента (этап 2б). */
   shape?: Shape;
+  /** Иконка: отпечаток рисунка (этап 3). Подбор по рисунку обновляет его по актуальной версии из библиотеки. */
+  icon?: { print: IconPrint; glyph?: { width: number; height: number }; multicolor?: boolean };
 }
 
 /**
@@ -90,7 +93,16 @@ export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, C
         const variants = setVariants.get(e.setKey) ?? [];
         variants.push({ key: e.key, name: e.name, shape: e.shape && { ...e.shape, width: e.width, height: e.height } });
         setVariants.set(e.setKey, variants);
-      } else push({ ...base, key: e.key, isSet: false, name: e.name, sizes: [{ width: e.width, height: e.height }], shape: e.shape && { ...e.shape, width: e.width, height: e.height } });
+      } else
+        push({
+          ...base,
+          key: e.key,
+          isSet: false,
+          name: e.name,
+          sizes: [{ width: e.width, height: e.height }],
+          shape: e.shape && { ...e.shape, width: e.width, height: e.height },
+          icon: e.icon && { print: unpackPrint(e.icon.print), glyph: e.icon.glyph, multicolor: e.icon.multicolor },
+        });
     }
     for (const set of index.sets) push({ ...base, key: set.key, isSet: true, name: set.name, sizes: setSizes.get(set.key) ?? [], variants: setVariants.get(set.key) ?? [] });
   }
@@ -122,9 +134,10 @@ export function isWidthStretch(size: Size, candidate: Candidate): boolean {
  * - `stretched` — один кандидат по имени, экземпляр растянут по ширине (`isWidthStretch`);
  * - `size` — имя совпало, размер нет: проверить назначение (правило 27);
  * - `ambiguous` — несколько одноимённых, размер не разводит: выбор дизайнера;
- * - `none` — по имени не нашлось.
+ * - `none` — по имени не нашлось;
+ * - `drawn` / `shape` — иконка по рисунку (этап 3): тот же рисунок (замена без вопроса) / похожий (решает дизайнер).
  */
-export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none' | 'named' | 'similar' | 'composite';
+export type MatchStatus = 'exact' | 'stretched' | 'size' | 'ambiguous' | 'none' | 'named' | 'similar' | 'composite' | 'drawn' | 'shape';
 
 export interface MatchResult {
   status: MatchStatus;
@@ -169,3 +182,46 @@ export function guessProduct(groups: readonly { name: string; count: number }[],
   for (const [p, n] of score) if (!best || n > (score.get(best) ?? 0)) best = p;
   return best;
 }
+
+/** Иконка макета для подбора по рисунку. */
+export interface LayoutIcon {
+  print: IconPrint;
+  glyph?: { width: number; height: number };
+  multicolor: boolean;
+  name: string;
+}
+
+/** Иконки продукта с отпечатком — с ними сравнивается рисунок. */
+export function iconCandidates(byName: ReadonlyMap<string, Candidate[]>, product?: string): Candidate[] {
+  const seen = new Set<string>();
+  const out: Candidate[] = [];
+  for (const list of byName.values()) for (const c of list) {
+    if (c.kind !== 'icons' || !c.icon || seen.has(c.key) || (product && c.product !== product)) continue;
+    seen.add(c.key);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
+ * Наша иконка по рисунку (этап 3). `drawn` — тот же рисунок и выбор однозначен; `shape` — похожий, в списке
+ * ближайшие по рисунку: решает дизайнер.
+ */
+export function matchIcon(layout: LayoutIcon, candidates: readonly Candidate[]): MatchResult {
+  const byKey = new Map(candidates.map((c) => [c.key, c]));
+  const m = rankIcons(
+    layout.print,
+    candidates.map((c) => ({ key: c.key, name: c.name, print: c.icon!.print, glyph: c.icon!.glyph, multicolor: c.icon!.multicolor })),
+    { name: layout.name, glyph: layout.glyph, multicolor: layout.multicolor },
+  );
+  const alternatives = m.nearest.filter((n) => n.similarity >= ICON_SIMILAR - 0.1).map((n) => byKey.get(n.candidate.key)!);
+  if (m.status === 'none' || !m.target) return { status: 'none', alternatives };
+  const target = byKey.get(m.target.key)!;
+  // Многоцветная (своя или наша): цвета — часть рисунка, по одному силуэту не решаем (замер: кольцо адреса
+  // и цветная монета совпали силуэтом на 100 %) — только предложение.
+  const sure = m.similarity >= ICON_SURE && !m.disputed && !layout.multicolor && !target.icon?.multicolor;
+  return { status: sure ? 'drawn' : 'shape', target, score: m.similarity, alternatives: [target, ...alternatives.filter((c) => c.key !== target.key)] };
+}
+
+/** Тот же ли рисунок у иконки в индексе и у её актуальной версии из библиотеки. */
+export const samePrint = (a: IconPrint, b: IconPrint) => iconSimilarity(a, b, 0) >= 0.98;

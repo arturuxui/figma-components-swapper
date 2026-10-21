@@ -36,6 +36,8 @@ const STATUS: Record<MatchStatus, { label: string; cls: string; hint: string }> 
   named: { label: 'Имя и устройство', cls: 'foreign', hint: 'Ручной фрейм: имя как у нашего компонента, устройство похоже — посмотрите примерку' },
   similar: { label: 'Похож по устройству', cls: 'foreign', hint: 'Ручной фрейм со своим оформлением, устроен почти как наш компонент — посмотрите примерку' },
   composite: { label: 'Составной', cls: 'foreign', hint: 'Фрейм со своим оформлением и теми же компонентами внутри, что у нашего составного компонента, — посмотрите примерку' },
+  drawn: { label: 'Тот же рисунок', cls: 'ours', hint: 'Иконка нарисована так же, как наша (имя другое) — заменится, цвет макета сохранится' },
+  shape: { label: 'Похож по рисунку', cls: 'foreign', hint: 'Похожая наша иконка — сравните примеркой; в списке ближайшие по рисунку' },
 };
 const PRODUCT_LABEL: Record<string, string> = { driver: 'Driver', rider: 'Rider' };
 
@@ -85,6 +87,15 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   return (
     <>
       <p class="muted">Область: {scopeName}</p>
+      {matched?.icons && (matched.icons.changed.length > 0 || matched.icons.removed.length > 0) && (
+        <p class="warn">
+          Индекс иконок устарел: в библиотеке
+          {matched.icons.changed.length > 0 && ` перерисованы ${matched.icons.changed.length} (${matched.icons.changed.slice(0, 3).join(', ')}${matched.icons.changed.length > 3 ? '…' : ''})`}
+          {matched.icons.changed.length > 0 && matched.icons.removed.length > 0 && ','}
+          {matched.icons.removed.length > 0 && ` удалены ${matched.icons.removed.length} (${matched.icons.removed.slice(0, 3).join(', ')}${matched.icons.removed.length > 3 ? '…' : ''})`}
+          . Подбор уже сделан по актуальным иконкам; чтобы участвовали и новые — пересоберите индекс иконок в файле библиотеки.
+        </p>
+      )}
       <div class="totals">
         <Total n={t.foreign} label="чужих" />
         <Total n={t.local} label="локальных" />

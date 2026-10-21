@@ -22,7 +22,7 @@ function defaultDecisions(matches: Matches, report: Scanned['report'] | undefine
   for (const [id, m] of Object.entries(matches)) {
     const g = groups.get(id);
     // Отвязанный фрейм заменяется целиком — сразу выбран только отвязанный от нашего; остальное — после примерки.
-    const sure = g?.manual ? false : g?.detached ? g.origin === 'ours' : m.status === 'exact' || m.status === 'stretched';
+    const sure = g?.manual ? false : g?.detached ? g.origin === 'ours' : m.status === 'exact' || m.status === 'stretched' || m.status === 'drawn';
     out[id] = sure && m.target ? m.target.key : '';
   }
   return out;
@@ -204,6 +204,7 @@ function Indexes({ libraries, indexes, current }: { libraries: LibraryInfo[]; in
               {s ? (
                 <span class="muted">
                   {s.components} комп. · {s.sets} наборов · {date(s.takenAt)}
+                  {l.kind === 'icons' && !s.prints && ' · без рисунков — пересоберите, чтобы подбирать по рисунку'}
                 </span>
               ) : current?.id === l.id ? (
                 <span class="muted">не собран</span>

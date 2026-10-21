@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { INDEX_FORMAT, type LibraryIndex } from '../src/core/library-index';
-import { buildCandidates, guessProduct, matchByName, normalizeName, resolveChoice, sizeDistance } from '../src/core/match';
+import { buildCandidates, guessProduct, iconCandidates, matchByName, matchIcon, normalizeName, resolveChoice, sizeDistance } from '../src/core/match';
+import { packPrint, printIcon } from '../src/core/icon-shape';
 import { pickVariant } from '../src/core/variants';
 
 const index = (libraryId: string, product: string, kind: 'components' | 'icons', partial: Partial<LibraryIndex>): LibraryIndex => ({
@@ -176,5 +177,31 @@ describe('известные пары с разными именами', () => {
 
   it('своё имя по-прежнему находится', () => {
     expect(matchByName('Status Bar iOS', { width: 390, height: 54 }, both, 'rider').target?.key).toBe('r-sb');
+  });
+});
+
+describe('matchIcon — иконки по рисунку', () => {
+  const plus = 'M11 4h2v7h7v2h-7v7h-2v-7H4v-2h7z';
+  const ring = 'M12 2C17.52 2 22 6.48 22 12C22 17.52 17.52 22 12 22C6.48 22 2 17.52 2 12C2 6.48 6.48 2 12 2ZM12 4C7.58 4 4 7.58 4 12C4 16.42 7.58 20 12 20C16.42 20 20 16.42 20 12C20 7.58 16.42 4 12 4Z';
+  const entry = (key: string, name: string, d: string, evenOdd = false) => ({
+    key, name, width: 24, height: 24, page: 'Icons',
+    icon: { print: packPrint(printIcon([{ d, evenOdd }])) },
+  });
+  const icons = index('rider-icons', 'rider', 'icons', { entries: [entry('i-plus', 'ic_plus', plus), entry('i-ring', 'ic_circle', ring, true)] });
+  const all = iconCandidates(buildCandidates([icons]), 'rider');
+
+  it('тот же рисунок под другим именем — drawn', () => {
+    const m = matchIcon({ print: printIcon([{ d: plus, transform: [0.5, 0, 0, 0.5, 3, 3] }]), multicolor: false, name: '24/Stroke/add' }, all);
+    expect(m).toMatchObject({ status: 'drawn', target: { key: 'i-plus' } });
+  });
+  it('многоцветная — даже тот же силуэт только предложение', () => {
+    const m = matchIcon({ print: printIcon([{ d: plus }]), multicolor: true, name: 'logo' }, all);
+    expect(m.status).toBe('shape');
+  });
+  it('непохожий рисунок — none', () => {
+    expect(matchIcon({ print: printIcon([{ d: 'M0 0L24 0L0 24Z' }]), multicolor: false, name: 'x' }, all).status).toBe('none');
+  });
+  it('иконки другого продукта не участвуют', () => {
+    expect(iconCandidates(buildCandidates([icons]), 'driver')).toEqual([]);
   });
 });
