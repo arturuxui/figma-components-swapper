@@ -39,8 +39,9 @@ export function lostTexts(before: readonly string[], after: readonly string[]): 
 
 /**
  * Тексты, пропавшие при замене (слой лежит в другом месте, чем у нашего компонента), — обратно в слои нашего
- * компонента с тем же именем, где осталась заглушка (текста нет среди прежних). Только по однозначному имени:
- * по порядку не раскладываем — на клавиатуре Rider буквы разъехались по чужим клавишам (прогон «5б»).
+ * компонента с тем же именем, где осталась заглушка (текста нет среди прежних). Только по однозначному имени, а
+ * если остались один текст и одна заглушка — туда; по порядку не раскладываем — на клавиатуре Rider буквы разъехались
+ * по чужим клавишам (прогон «5б»).
  * Сохранённые заменой тексты не трогаем.
  */
 export function restoreTexts(before: readonly TextSlot[], after: readonly TextSlot[]): { id: string; text: string }[] {
@@ -57,5 +58,8 @@ export function restoreTexts(before: readonly TextSlot[], after: readonly TextSl
     lost.splice(i, 1);
     out.push({ id: slot.id, text: source.text });
   }
+  // Остались один пропавший текст и одна заглушка — однозначно (Alert: «В очередь» в слое `Text`, у нас `✏️Text here`).
+  const free = after.filter((t) => t.id && !was.has(t.text) && !out.some((o) => o.id === t.id));
+  if (lost.length === 1 && free.length === 1) out.push({ id: free[0].id!, text: lost[0] });
   return out;
 }

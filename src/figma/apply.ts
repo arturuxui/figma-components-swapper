@@ -149,7 +149,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     if (!previous) return false;
     const choice = ctx.overrides?.get(node.id);
     // Запоминаем только то, что после замены будет выглядеть иначе, чем наш компонент.
-    const against = choice === undefined ? undefined : chooseComponent(await importTarget(target), node).component;
+    const against = choice === undefined ? undefined : (await chooseComponent(await importTarget(target), node)).component;
     const captured = choice === undefined ? undefined : await captureOverrides(node, against);
     const outcome = await swapInstance(node, target);
     journal.push({ kind: 'swap', node, previous, captured });

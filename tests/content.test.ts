@@ -36,6 +36,12 @@ describe('restoreTexts', () => {
     expect(restoreTexts(before, after)).toEqual([]);
   });
 
+  it('один пропавший текст и одна заглушка — туда, даже если слой назван иначе (Alert)', () => {
+    const before = [t('✏️ Title', 'Очередь аэропорта'), t('Text', 'В очередь')];
+    const after = [t('✏️ Title', 'Очередь аэропорта', 'a1'), t('✏️Text here', 'Понятно', 'a2')];
+    expect(restoreTexts(before, after)).toEqual([{ id: 'a2', text: 'В очередь' }]);
+  });
+
   it('без однозначного имени не раскладывает по порядку (клавиатура)', () => {
     const before = [t('Key', 'Q'), t('Key', 'W'), t('Return', 'Go')];
     const after = [t('Key', 'q', 'a1'), t('Key', 'w', 'a2'), t('Label', 'return', 'a3')];

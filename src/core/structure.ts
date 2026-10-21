@@ -206,6 +206,14 @@ export function mapTexts(source: readonly TextSlot[], slots: readonly { name: st
   return { texts: out, lost: source.filter((_, j) => !used.has(j)).map((s) => s.text) };
 }
 
+/**
+ * Иконки после замены экземпляра: какие вернуть по месту (имя старой иконки) — только если иконок столько же, иначе
+ * порядок ничего не значит (null — не трогать). Совпавшие по имени не трогаем.
+ */
+export function iconsToRestore(before: readonly string[], after: readonly string[]): (string | null)[] {
+  return before.length === after.length ? mapIcons(before, after) : after.map(() => null);
+}
+
 /** Иконки по порядку: для каждой иконки компонента — имя иконки фрагмента на том же месте (null — не менять). */
 export function mapIcons(source: readonly string[], slots: readonly string[]): (string | null)[] {
   return slots.map((slot, i) => (i < source.length && source[i].toLowerCase() !== slot.toLowerCase() ? source[i] : null));
