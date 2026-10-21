@@ -79,3 +79,23 @@ export function iconColor(root: SceneNode): { multicolor: boolean; paint: SolidP
   const multicolor = other || colors.size > 1;
   return { multicolor, paint: multicolor ? null : (fill ?? stroke) };
 }
+
+/**
+ * Цвет макета — на нашу иконку (после замены): видимые заливки и обводки фигур становятся этим цветом, прозрачность
+ * слоя библиотеки сохраняется множителем (полупрозрачные части иконки). Фон контейнеров не трогаем.
+ */
+export function paintIcon(root: SceneNode, paint: SolidPaint) {
+  const recolor = (list: readonly Paint[]) => list.map((p) => (p.visible === false || (p.opacity ?? 1) === 0 ? p : { ...paint, opacity: (paint.opacity ?? 1) * (p.opacity ?? 1) }));
+  const visit = (node: SceneNode, isRoot: boolean) => {
+    if (!isRoot && node.visible === false) return;
+    if ('isMask' in node && node.isMask) return;
+    if (!isRoot && SHAPES.has(node.type)) {
+      const shape = node as GeometryMixin & SceneNode;
+      if (visiblePaint(shape.fills)) shape.fills = recolor(shape.fills as Paint[]);
+      if (visiblePaint(shape.strokes)) shape.strokes = recolor(shape.strokes as Paint[]);
+      if (node.type === 'BOOLEAN_OPERATION') return;
+    }
+    if ('children' in node) for (const child of node.children) visit(child, false);
+  };
+  visit(root, true);
+}

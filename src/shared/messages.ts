@@ -30,7 +30,7 @@ export type ToUi =
   | { type: 'progress'; text: string }
   | { type: 'indexed'; summary: IndexSummary }
   | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
-  | { type: 'matched'; product: string | null; products: string[]; matches: Matches }
+  | { type: 'matched'; product: string | null; products: string[]; matches: Matches; icons?: IconCheck }
   | {
       type: 'preview';
       groupId: string;
@@ -61,3 +61,13 @@ export type ToPlugin =
   | { type: 'select'; nodeIds: string[] }
   | { type: 'propose'; ids: string[] }
   | { type: 'open-library'; url: string };
+
+/** Сверка отпечатков иконок с актуальной библиотекой при скане (этап 3). */
+export interface IconCheck {
+  /** Сколько предложенных иконок подгружено и сверено. */
+  checked: number;
+  /** Перерисованы с момента индекса — подбор шёл по новому рисунку. */
+  changed: string[];
+  /** Нет в библиотеке (удалены или сняты с публикации) — из подбора убраны. */
+  removed: string[];
+}

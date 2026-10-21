@@ -150,6 +150,19 @@ export function flattenPath(d: string): Point[][] {
   return out;
 }
 
+/** Размер рисунка — рамка всех путей (без полей компонента). Пусто — undefined. */
+export function glyphOf(paths: readonly IconPath[]): { width: number; height: number } | undefined {
+  let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+  for (const p of paths) for (const c of flattenPath(p.d)) for (const pt of c) {
+    const [x, y] = apply(p.transform, pt);
+    minX = Math.min(minX, x);
+    maxX = Math.max(maxX, x);
+    minY = Math.min(minY, y);
+    maxY = Math.max(maxY, y);
+  }
+  return Number.isFinite(minX) ? { width: maxX - minX, height: maxY - minY } : undefined;
+}
+
 // ---------------------------------------------------------------------------
 // Растеризация
 // ---------------------------------------------------------------------------
@@ -265,8 +278,10 @@ export function iconSimilarity(a: IconPrint, b: IconPrint, shift = 1): number {
 // Подбор
 // ---------------------------------------------------------------------------
 
-/** Пороги — по замеру на макетах Driver и Rider (docs/research). */
+/** Пороги — по замеру на макетах Driver и Rider (docs/research/2026-10-21-icons.md). */
 export const ICON_SAME = 0.9;
+/** Тот же рисунок — замена без вопроса (как у копий и одноимённых): ниже уже бывали ошибки (замер, «Adress» → монета 1.00 — многоцветная). */
+export const ICON_SURE = 0.97;
 export const ICON_SIMILAR = 0.75;
 /** Двойники: формы, отличающиеся меньше, — одна форма (состояния, размеры, дубликаты). */
 export const ICON_TWIN = 0.02;

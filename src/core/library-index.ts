@@ -26,6 +26,8 @@ export interface IndexEntry {
   page: string;
   /** Устройство (без размера — он выше): с чем сравнивать ручные фреймы макета. */
   shape?: Omit<Shape, 'width' | 'height'>;
+  /** Иконка: отпечаток рисунка (`packPrint`, core/icon-shape.ts), размер рисунка, многоцветная ли (этап 3). */
+  icon?: { print: string; glyph?: { width: number; height: number }; multicolor?: boolean };
 }
 
 export interface IndexSet {
@@ -54,6 +56,8 @@ export interface IndexSummary {
   takenAt: string;
   components: number;
   sets: number;
+  /** Иконок с отпечатком рисунка: 0 у индекса иконок, собранного до этапа 3, — подбор по рисунку недоступен. */
+  prints: number;
 }
 
 export const summarizeIndex = (index: LibraryIndex): IndexSummary => ({
@@ -61,6 +65,7 @@ export const summarizeIndex = (index: LibraryIndex): IndexSummary => ({
   takenAt: index.takenAt,
   components: index.entries.length,
   sets: index.sets.length,
+  prints: index.entries.filter((e) => e.icon).length,
 });
 
 /** Компонент с именем на `.` или `_` в Figma не публикуется — в индекс не берём. */

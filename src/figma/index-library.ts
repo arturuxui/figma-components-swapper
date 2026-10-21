@@ -1,7 +1,9 @@
 // Сбор индекса в открытом файле библиотеки: все опубликуемые компоненты и наборы на всех страницах.
 
 import { INDEX_FORMAT, isPrivateName, parseVariantName, type IndexEntry, type IndexSet, type LibraryIndex, type LibraryKind } from '../core/library-index';
+import { glyphOf, packPrint, printIcon } from '../core/icon-shape';
 import { shapeOf, signature } from '../core/structure';
+import { iconColor, iconPaths } from './icon-geometry';
 import { snapshot } from './structure';
 
 /** Устройство компонента для индекса (этап 2б). У иконок не нужно — они сравниваются по рисунку (этап 3). */
@@ -9,6 +11,14 @@ async function shapeFor(c: ComponentNode, kind: LibraryKind): Promise<IndexEntry
   if (kind === 'icons') return undefined;
   const { width: _w, height: _h, ...rest } = shapeOf(signature(await snapshot(c)));
   return rest;
+}
+
+/** Иконка для индекса (этап 3): отпечаток рисунка, размер рисунка, многоцветная ли. У компонентов не нужно. */
+function iconFor(c: ComponentNode, kind: LibraryKind): IndexEntry['icon'] {
+  if (kind !== 'icons') return undefined;
+  const paths = iconPaths(c);
+  if (!paths.length) return undefined;
+  return { print: packPrint(printIcon(paths)), glyph: glyphOf(paths), multicolor: iconColor(c).multicolor || undefined };
 }
 
 export interface IndexTarget {
@@ -61,10 +71,19 @@ export async function buildLibraryIndex(target: IndexTarget, progress: (text: st
             height: round(v.height),
             page: page.name,
             shape,
+            icon: iconFor(v, target.kind),
           });
         }
       } else if (node.parent?.type !== 'COMPONENT_SET' && !isPrivateName(node.name)) {
-        entries.push({ key: node.key, name: node.name, width: round(node.width), height: round(node.height), page: page.name, shape: await shapeFor(node, target.kind) });
+        entries.push({
+          key: node.key,
+          name: node.name,
+          width: round(node.width),
+          height: round(node.height),
+          page: page.name,
+          shape: await shapeFor(node, target.kind),
+          icon: iconFor(node, target.kind),
+        });
       }
     }
   }

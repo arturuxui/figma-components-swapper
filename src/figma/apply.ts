@@ -10,6 +10,7 @@ import type { KeyHit } from '../core/library-index';
 import { matchByName, type Candidate } from '../core/match';
 import type { OverrideChoice } from '../core/overrides';
 import { applyOverride, captureOverrides, restoreOverrides, type CapturedOverride } from './overrides';
+import { iconColor, paintIcon } from './icon-geometry';
 import { replaceFrame, type FrameContext } from './replace-frame';
 import { chooseComponent, importTarget, swapInstance } from './swap';
 
@@ -17,6 +18,8 @@ export interface ApplyGroup {
   name: string;
   nodeIds: string[];
   target: Pick<Candidate, 'key' | 'isSet'>;
+  /** Иконка: цвет одноцветной иконки макета переносится на нашу (решение PD — цвет из макета). */
+  recolor?: boolean;
 }
 
 export interface ApplyIssue {
@@ -144,14 +147,17 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     else result.overrides.kept++;
   };
 
-  const swapOne = async (node: InstanceNode, name: string, target: Pick<Candidate, 'key' | 'isSet'>) => {
+  const swapOne = async (node: InstanceNode, name: string, target: Pick<Candidate, 'key' | 'isSet'>, recolor = false) => {
     const previous = await readMain(node);
     if (!previous) return false;
+    const color = recolor ? iconColor(node).paint : null;
     const choice = ctx.overrides?.get(node.id);
     // Запоминаем только то, что после замены будет выглядеть иначе, чем наш компонент.
     const against = choice === undefined ? undefined : (await chooseComponent(await importTarget(target), node)).component;
     const captured = choice === undefined ? undefined : await captureOverrides(node, against);
     const outcome = await swapInstance(node, target);
+    // Многоцветная наша иконка (логотип) остаётся в своих цветах.
+    if (color && !iconColor(node).multicolor) paintIcon(node, color);
     journal.push({ kind: 'swap', node, previous, captured });
     if (captured?.length) await settleOverrides(node, name, captured, choice ?? null);
     if (outcome.lost.length) result.lostTexts.push({ nodeId: node.id, name, message: outcome.lost.map((t) => `«${t}»`).join(', ') });
@@ -194,7 +200,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
         continue;
       }
       try {
-        if (await swapOne(node, group.name, group.target)) {
+        if (await swapOne(node, group.name, group.target, group.recolor)) {
           result.replaced++;
           swapped.push(node);
         } else result.skipped++;

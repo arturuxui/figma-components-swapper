@@ -46,6 +46,6 @@ describe('buildLookup', () => {
 
 describe('summarizeIndex', () => {
   it('считает компоненты и наборы', () => {
-    expect(summarizeIndex(index)).toEqual({ libraryId: 'driver-components', takenAt: index.takenAt, components: 3, sets: 1 });
+    expect(summarizeIndex(index)).toEqual({ libraryId: 'driver-components', takenAt: index.takenAt, components: 3, sets: 1, prints: 0 });
   });
 });

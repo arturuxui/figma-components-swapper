@@ -3,7 +3,9 @@
 import libraries from '../config/libraries.json';
 import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
-import { buildCandidates, guessProduct, matchByName, normalizeName, SIZE_TOLERANCE, type Candidate, type MatchResult } from './core/match';
+import { buildCandidates, guessProduct, iconCandidates, resolveChoice, matchByName, matchIcon, normalizeName, samePrint, SIZE_TOLERANCE, type Candidate, type LayoutIcon, type MatchResult } from './core/match';
+import { glyphOf, printIcon } from './core/icon-shape';
+import { iconColor, iconPaths } from './figma/icon-geometry';
 import { shapeOf, signature } from './core/structure';
 import { groupOverrides, type InstanceOverrides, type OverrideChoice, type OverrideGroup } from './core/overrides';
 import { findRepeats, type RepeatGroup } from './core/repeats';
@@ -19,7 +21,7 @@ import { previewSwap } from './figma/preview';
 import { chooseComponent, importTarget } from './figma/swap';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
-import type { LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
+import type { IconCheck, LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
 
 type LibraryConfig = (typeof libraries.libraries)[number];
 
@@ -50,7 +52,57 @@ let last: {
   repeats: RepeatGroup[];
   /** Расхождения заменяемых экземпляров со своим компонентом (этап 5). */
   overrides: OverrideGroup[];
+  /** Иконки макета для подбора по рисунку (этап 3): id группы → рисунок примера. */
+  icons: Map<string, LayoutIcon>;
+  /** Проверка отпечатков по актуальной библиотеке: что изменилось и удалено с момента индекса. */
+  iconCheck: IconCheck;
 } | null = null;
+
+/** Размер иконки в макете (как у плагина на этапе 1 — до 48 px). */
+const ICON_MAX = 48;
+
+/** Рисунок примера группы — для групп размером с иконку, которые можно заменить экземпляром. */
+async function layoutIcons(groups: readonly ReportGroup[]): Promise<Map<string, LayoutIcon>> {
+  const out = new Map<string, LayoutIcon>();
+  for (const g of groups) {
+    if (g.detached || g.manual || Math.max(g.width, g.height) > ICON_MAX || Math.min(g.width, g.height) < 8) continue;
+    const node = await figma.getNodeByIdAsync(g.exampleNodeId);
+    if (!node || node.type !== 'INSTANCE') continue;
+    const paths = iconPaths(node);
+    if (!paths.length) continue;
+    out.set(g.id, { print: printIcon(paths), glyph: glyphOf(paths), multicolor: iconColor(node).multicolor, name: g.name });
+  }
+  return out;
+}
+
+/**
+ * Отпечатки в индексе могли устареть: иконку в библиотеке перерисовали или удалили. Иконки, которые подбор
+ * предлагает, подгружаем из библиотеки (актуальная опубликованная версия) и сверяем: перерисованная — подбор
+ * по новому рисунку, удалённая — из подбора уходит. Новые иконки так не найти — только пересборкой индекса.
+ */
+async function checkIcons(icons: Map<string, LayoutIcon>, byName: Map<string, Candidate[]>, product: string | undefined): Promise<IconCheck> {
+  const check: IconCheck = { checked: 0, changed: [], removed: [] };
+  const all = iconCandidates(byName, product);
+  const offered = new Map<string, Candidate>();
+  for (const icon of icons.values()) for (const c of matchIcon(icon, all).alternatives) offered.set(c.key, c);
+  for (const c of offered.values()) {
+    progress(`Сверка иконок с библиотекой: ${++check.checked} из ${offered.size}`);
+    const fresh = await importTarget(c).catch(() => null);
+    if (!fresh) {
+      check.removed.push(c.name);
+      for (const [k, list] of byName) byName.set(k, list.filter((x) => x.key !== c.key));
+      continue;
+    }
+    const main = fresh.type === 'COMPONENT_SET' ? fresh.defaultVariant : fresh;
+    const paths = iconPaths(main);
+    const print = printIcon(paths);
+    if (c.icon && !samePrint(c.icon.print, print)) {
+      check.changed.push(c.name);
+      c.icon = { print, glyph: glyphOf(paths), multicolor: iconColor(main).multicolor };
+    }
+  }
+  return check;
+}
 
 /**
  * Этап 5: реальные расхождения экземпляров, которые заменяем, со своим (старым) компонентом — по группам отчёта.
@@ -106,7 +158,13 @@ function matchFor(g: ReportGroup, byName: Map<string, Candidate[]>, lookup: Map<
     const own: Candidate = { key: g.detachedKey, isSet: false, name: hit.name, libraryId: hit.libraryId, product: hit.product, kind: hit.kind, sizes: [{ width: g.width, height: g.height }] };
     return { status: 'exact', target: own, alternatives: [own] };
   }
-  return matchByName(g.name, g, byName, product ?? undefined);
+  const byNameResult = matchByName(g.name, g, byName, product ?? undefined);
+  const icon = last?.icons.get(g.id);
+  if (!icon || byNameResult.status === 'exact' || byNameResult.status === 'stretched') return byNameResult;
+  const drawn = matchIcon(icon, iconCandidates(byName, product ?? undefined));
+  if (drawn.status === 'none') return byNameResult;
+  const extra = byNameResult.alternatives.filter((c) => !drawn.alternatives.some((d) => d.key === c.key));
+  return { ...drawn, alternatives: [...drawn.alternatives, ...extra] };
 }
 
 function sendMatches(product: string | null) {
@@ -114,7 +172,7 @@ function sendMatches(product: string | null) {
   last.product = product;
   const matches: Matches = {};
   for (const g of replaceable(last.report)) matches[g.id] = matchFor(g, last.byName, last.lookup, product);
-  post({ type: 'matched', product, products: last.products, matches });
+  post({ type: 'matched', product, products: last.products, matches, icons: last.iconCheck });
 }
 
 async function buildIndex() {
@@ -155,6 +213,9 @@ async function scan() {
     return m.status === 'exact' && m.target ? m.target : null;
   };
   const overrides = [...(await overridesOf(toReplace(report), screenOf, false, exact)), ...(await overridesOf(oursGroups(report), screenOf, true))];
+  progress('Иконки по рисунку…');
+  const icons = await layoutIcons(toReplace(report));
+  const iconCheck = await checkIcons(icons, byName, guess);
   last = {
     report,
     byName,
@@ -164,6 +225,8 @@ async function scan() {
     manual: new Map(manualGroups.map((g) => [g.id, firstOf.get(g.exampleNodeId)!])),
     repeats,
     overrides,
+    icons,
+    iconCheck,
   };
   post({
     type: 'scanned',
@@ -215,7 +278,9 @@ async function apply(choices: { groupId: string; target: { key: string; isSet: b
   const groups = replaceable(last.report);
   const selected = choices.flatMap(({ groupId, target }) => {
     const g = groups.find((x) => x.id === groupId);
-    return g ? [{ name: g.name, nodeIds: g.nodeIds, target }] : [];
+    if (!g) return [];
+    const kind = resolveChoice(matchFor(g, last!.byName, last!.lookup, last!.product).alternatives, target.key)?.owner.kind;
+    return [{ name: g.name, nodeIds: g.nodeIds, target, recolor: kind === 'icons' }];
   });
   if (!selected.length) throw new Error('Не выбрано ни одной замены.');
   // Экземпляры с расхождениями → выбор пользователя по их группе расхождений (не решено — null).
