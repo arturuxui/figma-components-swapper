@@ -4,7 +4,9 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises';
 
 const watch = process.argv.includes('--watch');
 
-const common = { bundle: true, target: 'es2020', charset: 'utf8', minify: !watch, logLevel: 'info' };
+// Версия из package.json — видна в окне плагина (проверка, что архив релиза собран из нужной версии).
+const { version } = JSON.parse(await readFile('package.json', 'utf8'));
+const common = { bundle: true, target: 'es2020', charset: 'utf8', minify: !watch, logLevel: 'info', define: { __VERSION__: JSON.stringify(version) } };
 
 const inlineUi = {
   name: 'inline-ui',

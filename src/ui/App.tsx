@@ -131,7 +131,9 @@ export function App() {
   return (
     <>
       <header>
-        <h1>Components Swapper</h1>
+        <h1>
+          Components Swapper <span class="muted">v{__VERSION__}</span>
+        </h1>
         <p>{library ? `Файл библиотеки: ${library.name}` : 'Макет: компоненты не из библиотек WB AID → наши'}</p>
       </header>
       <main>
