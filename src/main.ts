@@ -21,9 +21,11 @@ import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { chooseComponent, importTarget } from './figma/swap';
 import { measurePages } from './figma/measure';
+import { loadRenames } from './figma/renames';
+import { renameAliases, staleness } from './core/renames';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
-import type { IconCheck, LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
+import type { IconCheck, LibraryInfo, Matches, RenameCheck, ToPlugin, ToUi } from './shared/messages';
 
 type LibraryConfig = (typeof libraries.libraries)[number];
 
@@ -65,6 +67,8 @@ let last: {
   icons: Map<string, LayoutIcon>;
   /** Проверка отпечатков по актуальной библиотеке: что изменилось и удалено с момента индекса. */
   iconCheck: IconCheck;
+  /** Карта переименований библиотек (AID-LU-18): что из неё взято в подбор. */
+  renameCheck: RenameCheck;
 } | null = null;
 
 /** Размер иконки в макете (как у плагина на этапе 1 — до 48 px). */
@@ -193,7 +197,7 @@ function sendMatches(product: string | null) {
   last.product = product;
   const matches: Matches = {};
   for (const g of replaceable(last.report)) matches[g.id] = matchFor(g, last.byName, last.lookup, product);
-  post({ type: 'matched', product, products: last.products, matches, icons: last.iconCheck });
+  post({ type: 'matched', product, products: last.products, matches, icons: last.iconCheck, renames: last.renameCheck });
 }
 
 async function buildIndex() {
@@ -216,7 +220,13 @@ async function scan() {
   const scope = selection.length ? 'selection' : 'page';
   const roots = selection.length ? selection : figma.currentPage.children;
   const lookup = buildLookup(indexes);
-  const byName = buildCandidates(indexes);
+  // Карта переименований: старые имена наших компонентов — в подбор, удалённые после индекса — из подбора.
+  progress('Карта переименований библиотек…');
+  const renames = await loadRenames(indexes.map((i) => i.libraryId));
+  const renamed = renameAliases(renames.entries);
+  const stale = staleness(renames.entries, indexes);
+  const byName = buildCandidates(indexes, { renamed, removed: stale.removed });
+  const renameCheck: RenameCheck = { entries: renames.entries.length, renamed: renamed.size, removed: stale.removedNames, added: stale.added, offline: renames.offline };
   const found = await scanNodes(roots, lookup, progress, manualFilter(byName));
   const report = buildReport(found.instances, found.detached, lookup);
   const manual = await manualFindings(found.manual);
@@ -248,6 +258,7 @@ async function scan() {
     overrides,
     icons,
     iconCheck,
+    renameCheck,
   };
   post({
     type: 'scanned',

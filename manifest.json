@@ -11,7 +11,11 @@
   "enablePrivatePluginApi": true,
   "networkAccess": {
     "allowedDomains": [
-      "none"
-    ]
-  }
+      "https://library-updater.wb-aid-lu.workers.dev"
+    ],
+    "reasoning": "Карта переименований библиотек AID с сервера Library Updater"
+  },
+  "permissions": [
+    "currentuser"
+  ]
 }

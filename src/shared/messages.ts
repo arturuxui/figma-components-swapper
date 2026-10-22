@@ -36,7 +36,7 @@ export type ToUi =
   | { type: 'progress'; text: string }
   | { type: 'indexed'; summary: IndexSummary }
   | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
-  | { type: 'matched'; product: string | null; products: string[]; matches: Matches; icons?: IconCheck }
+  | { type: 'matched'; product: string | null; products: string[]; matches: Matches; icons?: IconCheck; renames?: RenameCheck }
   | {
       type: 'preview';
       groupId: string;
@@ -79,4 +79,18 @@ export interface IconCheck {
   changed: string[];
   /** Нет в библиотеке (удалены или сняты с публикации) — из подбора убраны. */
   removed: string[];
+}
+
+/** Карта переименований библиотек с сервера Library Updater (AID-LU-18) при скане. */
+export interface RenameCheck {
+  /** Сколько публикаций с изменениями известно. */
+  entries: number;
+  /** Сколько наших компонентов и наборов подбираются и под прежними именами. */
+  renamed: number;
+  /** Удалены из библиотеки после сборки индекса — из подбора убраны. */
+  removed: string[];
+  /** Добавлено после сборки индекса — видно только после пересборки. */
+  added: number;
+  /** Библиотеки, по которым сервер не ответил (взята сохранённая карта). */
+  offline: string[];
 }
