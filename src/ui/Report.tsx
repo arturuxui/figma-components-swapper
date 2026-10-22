@@ -87,6 +87,19 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
   return (
     <>
       <p class="muted">Область: {scopeName}</p>
+      {matched?.renames && (matched.renames.added > 0 || matched.renames.removed.length > 0) && (
+        <p class="warn">
+          Библиотеки изменились после сборки индекса:
+          {matched.renames.added > 0 && ` добавлено ${matched.renames.added}`}
+          {matched.renames.added > 0 && matched.renames.removed.length > 0 && ','}
+          {matched.renames.removed.length > 0 &&
+            ` удалено ${matched.renames.removed.length} (${matched.renames.removed.slice(0, 3).join(', ')}${matched.renames.removed.length > 3 ? '…' : ''}) — из подбора убраны`}
+          . Пересоберите индексы, чтобы подбирать и новое.
+        </p>
+      )}
+      {matched?.renames && matched.renames.renamed > 0 && (
+        <p class="muted">Карта переименований: {matched.renames.renamed} компонентов подбираются и под прежними именами.</p>
+      )}
       {matched?.icons && (matched.icons.changed.length > 0 || matched.icons.removed.length > 0) && (
         <p class="warn">
           Индекс иконок устарел: в библиотеке

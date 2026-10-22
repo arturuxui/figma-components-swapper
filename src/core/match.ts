@@ -67,8 +67,19 @@ export function resolveChoice(alternatives: readonly Candidate[], key: string): 
   return null;
 }
 
-/** Имя → кандидаты из всех индексов; наш компонент лежит и под старыми именами из известных пар. */
-export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, Candidate[]> {
+/** Карта переименований библиотек (AID-LU-18), см. `renames.ts`. */
+export interface RenameOptions {
+  /** Ключ компонента или набора → все его имена (из карты Library Updater). */
+  renamed?: ReadonlyMap<string, readonly string[]>;
+  /** Ключи, удалённые из библиотеки после сборки индекса, — в подбор не идут. */
+  removed?: ReadonlySet<string>;
+}
+
+/**
+ * Имя → кандидаты из всех индексов; наш компонент лежит и под старыми именами: из известных пар и из карты
+ * переименований библиотеки.
+ */
+export function buildCandidates(indexes: readonly LibraryIndex[], renames: RenameOptions = {}): Map<string, Candidate[]> {
   const byName = new Map<string, Candidate[]>();
   const add = (key: string, c: Candidate) => {
     if (!key) return;
@@ -78,8 +89,9 @@ export function buildCandidates(indexes: readonly LibraryIndex[]): Map<string, C
   };
   // Свой ключ и старые имена из известных пар (`aliases.ts`).
   const push = (c: Candidate) => {
-    add(normalizeName(c.name), c);
-    for (const old of aliasesOf(c.product, c.name, normalizeName)) add(normalizeName(old), c);
+    if (renames.removed?.has(c.key)) return;
+    const names = new Set([c.name, ...aliasesOf(c.product, c.name, normalizeName), ...(renames.renamed?.get(c.key) ?? [])].map(normalizeName));
+    for (const name of names) add(name, c);
   };
   for (const index of indexes) {
     const base = { libraryId: index.libraryId, product: index.product, kind: index.kind };
