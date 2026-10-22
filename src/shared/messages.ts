@@ -1,5 +1,6 @@
 // Сообщения между кодом плагина (sandbox) и UI (iframe).
 
+import type { AdoptionJson, AdoptionResult } from '../core/adoption';
 import type { ApplyResult } from '../figma/apply';
 import type { IndexSummary, LibraryKind } from '../core/library-index';
 import type { Candidate, MatchResult } from '../core/match';
@@ -18,6 +19,11 @@ export interface LibraryInfo {
   url: string;
 }
 
+export interface PageRef {
+  id: string;
+  name: string;
+}
+
 export type ScanScope = 'selection' | 'page';
 
 /** Подбор по имени для групп экземпляров «заменить»: id группы → результат. */
@@ -26,7 +32,7 @@ export type Matches = Record<string, MatchResult>;
 export type TargetRef = Pick<Candidate, 'key' | 'isSet'>;
 
 export type ToUi =
-  | { type: 'init'; library: LibraryInfo | null; libraries: LibraryInfo[]; indexes: IndexSummary[] }
+  | { type: 'init'; library: LibraryInfo | null; libraries: LibraryInfo[]; indexes: IndexSummary[]; pages: PageRef[]; currentPageId: string }
   | { type: 'progress'; text: string }
   | { type: 'indexed'; summary: IndexSummary }
   | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
@@ -47,6 +53,7 @@ export type ToUi =
   | { type: 'applied'; result: ApplyResult }
   | { type: 'undone'; restored: number; failed: number }
   | { type: 'proposed'; pageName: string; drafts: number; missing: string[] }
+  | { type: 'measured'; result: AdoptionResult; json: AdoptionJson; unreadable: number; inSets: number; products: string[] }
   | { type: 'error'; message: string };
 
 export type ToPlugin =
@@ -60,7 +67,9 @@ export type ToPlugin =
   | { type: 'focus'; nodeId: string }
   | { type: 'select'; nodeIds: string[] }
   | { type: 'propose'; ids: string[] }
-  | { type: 'open-library'; url: string };
+  | { type: 'open-library'; url: string }
+  /** Замер внедрения AID (AID-LU-19): страницы; продукт не задан — угадывается по старым компонентам. */
+  | { type: 'measure'; pageIds: string[]; product?: string };
 
 /** Сверка отпечатков иконок с актуальной библиотекой при скане (этап 3). */
 export interface IconCheck {

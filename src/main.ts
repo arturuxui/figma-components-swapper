@@ -1,6 +1,7 @@
 // Код плагина в песочнице Figma: определяет, открыт ли файл библиотеки, и выполняет команды UI.
 
 import libraries from '../config/libraries.json';
+import { adoptionItem, adoptionJson, countAdoption } from './core/adoption';
 import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
 import { buildCandidates, guessProduct, iconCandidates, resolveChoice, matchByName, matchIcon, normalizeName, samePrint, SIZE_TOLERANCE, type Candidate, type LayoutIcon, type MatchResult } from './core/match';
@@ -19,6 +20,7 @@ import { proposeImprovements, type Improvement } from './figma/improve';
 import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { chooseComponent, importTarget } from './figma/swap';
+import { measurePages } from './figma/measure';
 import { scanNodes } from './figma/scan';
 import { loadIndexes, saveIndex, summaries } from './figma/store';
 import type { IconCheck, LibraryInfo, Matches, ToPlugin, ToUi } from './shared/messages';
@@ -36,7 +38,14 @@ const library = libraries.libraries.find((l) => l.fileKey === figma.fileKey);
 figma.showUI(__html__, { width: 480, height: 640, themeColors: true });
 
 void (async () => {
-  post({ type: 'init', library: library ? info(library) : null, libraries: libraries.libraries.map(info), indexes: summaries(await loadIndexes(allIds)) });
+  post({
+    type: 'init',
+    library: library ? info(library) : null,
+    libraries: libraries.libraries.map(info),
+    indexes: summaries(await loadIndexes(allIds)),
+    pages: figma.root.children.map((p) => ({ id: p.id, name: p.name })),
+    currentPageId: figma.currentPage.id,
+  });
 })();
 
 /** Последний скан: по нему подбираются пары, делается примерка и (этап 1в) замена. */
@@ -397,6 +406,32 @@ async function select(nodeIds: string[]) {
   figma.viewport.scrollAndZoomIntoView(nodes);
 }
 
+/**
+ * Замер внедрения AID (AID-LU-19) по методике PD: экземпляры верхнего уровня выбранных страниц по источнику, иконки
+ * отдельно; «готово к замене» — старые компоненты с уверенной парой по имени. Итог — счётчики и JSON точки замера.
+ */
+async function measure(pageIds: string[], product?: string) {
+  if (!pageIds.length) throw new Error('Выберите хотя бы одну страницу.');
+  const indexes = await loadIndexes(allIds);
+  if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
+  const lookup = buildLookup(indexes);
+  const byName = buildCandidates(indexes);
+  const { findings, unreadable, inSets } = await measurePages(pageIds, progress);
+  const names = new Map<string, number>();
+  for (const f of findings) if (f.remote && !lookup.has(f.componentKey)) names.set(f.name, (names.get(f.name) ?? 0) + 1);
+  const chosen = product ?? guessProduct([...names].map(([name, count]) => ({ name, count })), byName) ?? indexes[0].product;
+  const analog = (f: { name: string; width: number; height: number }) => {
+    const m = matchByName(f.name, f, byName, chosen);
+    return m.status === 'exact' || m.status === 'stretched';
+  };
+  const result = countAdoption(findings.map((f) => adoptionItem(f, lookup, analog)));
+  const now = new Date();
+  const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const pages = pageIds.map((id) => figma.root.children.find((p) => p.id === id)?.name ?? id).map((page) => ({ fileKey: figma.fileKey ?? '', page }));
+  const json = adoptionJson(result, { product: chosen, date, pages, source: `Components Swapper v${__VERSION__}` });
+  post({ type: 'measured', result, json, unreadable, inSets, products: [...new Set(indexes.map((i) => i.product))].sort() });
+}
+
 figma.on('close', finalizeFrames);
 
 figma.ui.onmessage = async (msg: ToPlugin) => {
@@ -412,6 +447,7 @@ figma.ui.onmessage = async (msg: ToPlugin) => {
     else if (msg.type === 'select') await select(msg.nodeIds);
     else if (msg.type === 'propose') await proposeDrafts(msg.ids);
     else if (msg.type === 'open-library') figma.openExternal(msg.url);
+    else if (msg.type === 'measure') await measure(msg.pageIds, msg.product);
   } catch (e) {
     post({ type: 'error', message: e instanceof Error ? e.message : String(e) });
   }
