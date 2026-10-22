@@ -5,9 +5,10 @@ import type { IndexSummary } from '../core/library-index';
 import { resolveChoice } from '../core/match';
 import type { OverrideChoice } from '../core/overrides';
 import type { ApplyResult } from '../figma/apply';
-import type { LibraryInfo, Matches, TargetRef, ToPlugin, ToUi } from '../shared/messages';
+import type { LibraryInfo, Matches, PageRef, TargetRef, ToPlugin, ToUi } from '../shared/messages';
 import { Applied } from './Applied';
 import { send, type Scanned } from './bridge';
+import { Measure, type Measured } from './Measure';
 import { Report, type Decisions, type Preview } from './Report';
 
 type Matched = Extract<ToUi, { type: 'matched' }>;
@@ -46,6 +47,8 @@ export function App() {
   const [proposed, setProposed] = useState<Proposed | null>(null);
   /** Выбор по расхождениям с компонентом (этап 5): id группы расхождений → что делать при замене. */
   const [overrideChoices, setOverrideChoices] = useState<Record<string, OverrideChoice>>({});
+  const [pages, setPages] = useState<{ list: PageRef[]; current: string }>({ list: [], current: '' });
+  const [measured, setMeasured] = useState<Measured | null>(null);
 
   useEffect(() => {
     const onMessage = (e: MessageEvent) => {
@@ -55,6 +58,7 @@ export function App() {
         setLibrary(msg.library);
         setLibraries(msg.libraries);
         setIndexes(msg.indexes);
+        setPages({ list: msg.pages, current: msg.currentPageId });
         setReady(true);
       } else if (msg.type === 'progress') setBusy(msg.text);
       else if (msg.type === 'indexed') {
@@ -98,6 +102,9 @@ export function App() {
       } else if (msg.type === 'undone') {
         setUndone({ restored: msg.restored, failed: msg.failed });
         setBusy(null);
+      } else if (msg.type === 'measured') {
+        setMeasured(msg);
+        setBusy(null);
       } else if (msg.type === 'error') {
         setError(msg.message);
         setBusy(null);
@@ -138,6 +145,15 @@ export function App() {
       </header>
       <main>
         {(library || !scanned) && <Indexes libraries={libraries} indexes={indexes} current={library} />}
+        {!library && !scanned && !applied && (
+          <Measure
+            pages={pages.list}
+            currentPageId={pages.current}
+            measured={measured}
+            busy={!!busy}
+            onMeasure={(pageIds, product) => run({ type: 'measure', pageIds, product }, 'Замеряю…')}
+          />
+        )}
         {!library && applied && <Applied result={applied} undone={undone} />}
         {showReport && (
           <Report
