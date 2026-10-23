@@ -4,7 +4,11 @@
 // запущенный в файле библиотеки, а в макете использует сохранённый. Этот модуль — формат индекса
 // и поиск по нему; модуль замены (будущий движок) зависит только от него, а не от UI и конфига.
 
-export type LibraryKind = 'components' | 'icons';
+/**
+ * `legacy` — старая библиотека продукта (для замера внедрения: legacy vs other, AID-LU-19). В индексе только ключи;
+ * в подбор и в «наше» не идёт. Список — `figmaLegacyLibraries` продукта в репозитории AID.
+ */
+export type LibraryKind = 'components' | 'icons' | 'legacy';
 
 import type { Shape } from './structure';
 

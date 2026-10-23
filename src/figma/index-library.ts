@@ -6,9 +6,9 @@ import { shapeOf, signature } from '../core/structure';
 import { iconColor, iconPaths } from './icon-geometry';
 import { snapshot } from './structure';
 
-/** Устройство компонента для индекса (этап 2б). У иконок не нужно — они сравниваются по рисунку (этап 3). */
+/** Устройство компонента для индекса (этап 2б). У иконок не нужно — они сравниваются по рисунку (этап 3), у старых библиотек — только ключи. */
 async function shapeFor(c: ComponentNode, kind: LibraryKind): Promise<IndexEntry['shape']> {
-  if (kind === 'icons') return undefined;
+  if (kind !== 'components') return undefined;
   const { width: _w, height: _h, ...rest } = shapeOf(signature(await snapshot(c)));
   return rest;
 }
@@ -48,17 +48,22 @@ function axesOf(set: ComponentSetNode): Record<string, string[]> {
 }
 
 export async function buildLibraryIndex(target: IndexTarget, progress: (text: string) => void): Promise<LibraryIndex> {
-  await figma.loadAllPagesAsync();
   const entries: IndexEntry[] = [];
   const sets: IndexSet[] = [];
+  // Старая библиотека (замер legacy vs other): экземпляр узнаётся по ключу набора — варианты и оси не храним
+  // (в «🔥 DS Ui Kit» 7 745 компонентов, из них 5 665 — варианты кнопки).
+  const keysOnly = target.kind === 'legacy';
 
+  // По странице: так работает и в файле, открытом только на чтение (старые библиотеки — чужие).
   for (const page of figma.root.children) {
     progress(`Страница «${page.name}»`);
+    await page.loadAsync();
     for (const node of page.findAllWithCriteria({ types: ['COMPONENT', 'COMPONENT_SET'] })) {
       if (node.type === 'COMPONENT_SET') {
         if (isPrivateName(node.name)) continue;
         const variants = node.children.filter((c): c is ComponentNode => c.type === 'COMPONENT');
-        sets.push({ key: node.key, name: node.name, axes: axesOf(node), variants: variants.length });
+        sets.push({ key: node.key, name: node.name, axes: keysOnly ? {} : axesOf(node), variants: variants.length });
+        if (keysOnly) continue;
         for (const v of variants) {
           const shape = await shapeFor(v, target.kind);
           entries.push({

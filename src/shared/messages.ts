@@ -53,7 +53,7 @@ export type ToUi =
   | { type: 'applied'; result: ApplyResult }
   | { type: 'undone'; restored: number; failed: number }
   | { type: 'proposed'; pageName: string; drafts: number; missing: string[] }
-  | { type: 'measured'; result: AdoptionResult; json: AdoptionJson; unreadable: number; inSets: number; products: string[] }
+  | { type: 'measured'; result: AdoptionResult; json: AdoptionJson; unreadable: number; inSets: number; products: string[]; legacy: { indexed: string[]; missing: string[] } }
   | { type: 'error'; message: string };
 
 export type ToPlugin =

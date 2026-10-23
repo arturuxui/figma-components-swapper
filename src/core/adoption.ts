@@ -3,7 +3,8 @@
 // Без Figma API: на вход — экземпляры верхнего уровня, собранные обходом страниц.
 //
 // Расхождения с методикой — решения инженера 2026-10-22 (подбирать молча нельзя):
-// - `legacy` — всякий внешний компонент не из AID: Plugin API не говорит, из какой библиотеки он, поэтому `other` = 0;
+// - `legacy` — внешний компонент из старой библиотеки продукта (по ключам её индекса), `other` — прочий внешний; без
+//   индексов старых библиотек всё внешнее не из AID — `legacy` (Plugin API не говорит, из какой библиотеки компонент);
 // - чужая иконка — экземпляр до 48 px (у наших иконок — точно, по ключу индекса иконок);
 // - `legacyWithAidAnalog` — экземпляры старых компонентов (не иконок) с уверенной парой по имени;
 // - скрытые не входят в счёт, но считаются отдельно — для сверки с аудитом AID-LU-13, который их считал.
@@ -91,14 +92,20 @@ export interface AdoptionFinding {
   hidden: boolean;
 }
 
-/** Источник по ключу главного компонента (§2): наш индекс — AID, внешний — старая библиотека, иначе — локальный. */
+/**
+ * Источник по ключу главного компонента (§2): наш индекс — AID; внешний из старой библиотеки продукта — legacy,
+ * прочий внешний — other; иначе — локальный. Индексов старых библиотек нет (`legacy` не задан) — всё внешнее не из
+ * AID считается legacy, как раньше.
+ */
 export function adoptionItem(
   f: AdoptionFinding,
-  aid: ReadonlyMap<string, { kind: 'components' | 'icons' }>,
+  aid: ReadonlyMap<string, { kind: string }>,
   hasAnalog: (f: AdoptionFinding) => boolean,
+  legacy?: ReadonlySet<string>,
 ): AdoptionItem {
   const hit = aid.get(f.componentKey) ?? (f.setKey ? aid.get(f.setKey) : undefined);
-  const source: AdoptionSource = hit ? 'aid' : f.remote ? 'legacy' : 'local';
+  const inLegacy = !legacy || legacy.has(f.componentKey) || (!!f.setKey && legacy.has(f.setKey));
+  const source: AdoptionSource = hit ? 'aid' : !f.remote ? 'local' : inLegacy ? 'legacy' : 'other';
   const icon = hit ? hit.kind === 'icons' : Math.max(f.width, f.height) <= ADOPTION_ICON_MAX;
   return { source, icon, hidden: f.hidden, unit: f.setKey ?? f.componentKey, analog: source === 'legacy' && !icon && hasAnalog(f) };
 }

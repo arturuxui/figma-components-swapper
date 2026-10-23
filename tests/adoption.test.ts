@@ -31,6 +31,23 @@ describe('adoptionItem — источник по ключу', () => {
   });
 });
 
+describe('adoptionItem — старые библиотеки продукта (legacy vs other)', () => {
+  const legacy = new Set(['k-old', 'set-old']);
+  it('внешний из старой библиотеки — legacy (по ключу компонента или набора), прочий внешний — other', () => {
+    expect(adoptionItem(f({ componentKey: 'k-old' }), aid, noAnalog, legacy).source).toBe('legacy');
+    expect(adoptionItem(f({ componentKey: 'v', setKey: 'set-old' }), aid, noAnalog, legacy).source).toBe('legacy');
+    expect(adoptionItem(f({ componentKey: 'k-x' }), aid, noAnalog, legacy).source).toBe('other');
+  });
+  it('AID и локальные — как без списка', () => {
+    expect(adoptionItem(f({ componentKey: 'k-button' }), aid, noAnalog, legacy).source).toBe('aid');
+    expect(adoptionItem(f({ remote: false }), aid, noAnalog, legacy).source).toBe('local');
+  });
+  it('готово к замене — только у legacy, не у other', () => {
+    expect(adoptionItem(f({ componentKey: 'k-x' }), aid, () => true, legacy).analog).toBe(false);
+    expect(adoptionItem(f({ componentKey: 'k-old' }), aid, () => true, legacy).analog).toBe(true);
+  });
+});
+
 describe('countAdoption', () => {
   const items = [
     { source: 'aid', icon: false, hidden: false, unit: 'a', analog: false },
