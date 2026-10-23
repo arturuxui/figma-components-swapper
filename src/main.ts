@@ -1,6 +1,7 @@
 // Код плагина в песочнице Figma: определяет, открыт ли файл библиотеки, и выполняет команды UI.
 
 import libraries from '../config/libraries.json';
+import legacySnapshot from '../config/legacy-keys.json';
 import { adoptionItem, adoptionJson, countAdoption } from './core/adoption';
 import { buildLookup, summarizeIndex, type KeyHit, type LibraryIndex, type LibraryKind } from './core/library-index';
 import { groupManual, matchManual, type ManualFinding } from './core/manual';
@@ -20,7 +21,7 @@ import { proposeImprovements, type Improvement } from './figma/improve';
 import { realOverrides } from './figma/overrides';
 import { previewSwap } from './figma/preview';
 import { chooseComponent, importTarget } from './figma/swap';
-import { measurePages } from './figma/measure';
+import { measurePages, publishedUnits } from './figma/measure';
 import { loadRenames } from './figma/renames';
 import { renameAliases, staleness } from './core/renames';
 import { scanNodes } from './figma/scan';
@@ -430,9 +431,14 @@ async function measure(pageIds: string[], product?: string) {
   if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
   const lookup = buildLookup(indexes);
   const byName = buildCandidates(indexes);
-  // Старые библиотеки продукта: их ключи делят внешнее на legacy и other. Ни одного индекса — всё внешнее legacy.
+  // Старые библиотеки продукта: их ключи делят внешнее на legacy и other. Собранный индекс важнее снимка ключей
+  // (`config/legacy-keys.json`, 8 знаков: плагин в чужих библиотеках не запускается). Ничего нет — всё внешнее legacy.
   const legacyIndexes = await loadIndexes(legacyIds);
-  const legacy = legacyIndexes.length ? new Set(legacyIndexes.flatMap((i) => [...i.sets.map((x) => x.key), ...i.entries.map((e) => e.key)])) : undefined;
+  const full = new Set(legacyIndexes.flatMap((i) => [...i.sets.map((x) => x.key), ...i.entries.map((e) => e.key)]));
+  const snapshotIds = legacyIds.filter((id) => !legacyIndexes.some((i) => i.libraryId === id) && (legacySnapshot.libraries as Record<string, string>)[id]);
+  const short = new Set(snapshotIds.flatMap((id) => (legacySnapshot.libraries as Record<string, string>)[id].split(',')));
+  const covered = legacyIndexes.length + snapshotIds.length;
+  const legacy = covered ? ({ has: (k: string) => full.has(k) || short.has(k.slice(0, 8)) } as ReadonlySet<string>) : undefined;
   const { findings, unreadable, inSets } = await measurePages(pageIds, progress);
   const names = new Map<string, number>();
   for (const f of findings) if (f.remote && !lookup.has(f.componentKey)) names.set(f.name, (names.get(f.name) ?? 0) + 1);
@@ -441,14 +447,31 @@ async function measure(pageIds: string[], product?: string) {
     const m = matchByName(f.name, f, byName, chosen);
     return m.status === 'exact' || m.status === 'stretched';
   };
-  const result = countAdoption(findings.map((f) => adoptionItem(f, lookup, analog, legacy)));
+  const items = findings.map((f) => adoptionItem(f, lookup, analog, legacy));
+  const result = countAdoption(items);
+  // Прочие внешние (видимые): опубликованы в какой-то библиотеке или копии из других файлов (методике — вопрос PD).
+  const otherUnits = new Map<string, { key: string; isSet: boolean; count: number }>();
+  items.forEach((it, i) => {
+    if (it.source !== 'other' || it.hidden) return;
+    const f = findings[i];
+    const u = otherUnits.get(it.unit) ?? { key: f.setKey ?? f.componentKey, isSet: !!f.setKey, count: 0 };
+    u.count++;
+    otherUnits.set(it.unit, u);
+  });
+  const published = await publishedUnits([...otherUnits.values()], progress);
+  const copies = [...published.values()].some((v) => v === null) ? null : [...otherUnits.values()].filter((u) => published.get(u.key) === false).reduce((n, u) => n + u.count, 0);
   const now = new Date();
   const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const pages = pageIds.map((id) => figma.root.children.find((p) => p.id === id)?.name ?? id).map((page) => ({ fileKey: figma.fileKey ?? '', page }));
   const json = adoptionJson(result, { product: chosen, date, pages, source: `Components Swapper v${__VERSION__}` });
-  const legacyNames = legacyIndexes.map((i) => libraries.libraries.find((l) => l.id === i.libraryId)?.name ?? i.libraryId);
-  const missingLegacy = libraries.libraries.filter((l) => l.kind === 'legacy' && !legacyIndexes.some((i) => i.libraryId === l.id)).map((l) => l.name);
-  post({ type: 'measured', result, json, unreadable, inSets, products: [...new Set(indexes.map((i) => i.product))].sort(), legacy: { indexed: legacyNames, missing: missingLegacy } });
+  const nameOf = (id: string) => libraries.libraries.find((l) => l.id === id)?.name ?? id;
+  const legacyInfo = {
+    indexed: legacyIndexes.map((i) => nameOf(i.libraryId)),
+    snapshot: snapshotIds.map(nameOf),
+    snapshotAt: legacySnapshot.takenAt,
+    missing: legacyIds.filter((id) => !legacyIndexes.some((i) => i.libraryId === id) && !snapshotIds.includes(id)).map(nameOf),
+  };
+  post({ type: 'measured', result, json, unreadable, inSets, products: [...new Set(indexes.map((i) => i.product))].sort(), legacy: legacyInfo, copies });
 }
 
 figma.on('close', finalizeFrames);
