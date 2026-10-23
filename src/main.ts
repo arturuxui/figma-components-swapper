@@ -33,6 +33,9 @@ const info = (l: LibraryConfig): LibraryInfo => ({ id: l.id, product: l.product,
 const post = (msg: ToUi) => figma.ui.postMessage(msg);
 const progress = (text: string) => post({ type: 'progress', text });
 const allIds = libraries.libraries.map((l) => l.id);
+/** Библиотеки AID — подбор и «наше». Старые библиотеки (`legacy`) — только для замера внедрения: legacy vs other. */
+const aidIds = libraries.libraries.filter((l) => l.kind !== 'legacy').map((l) => l.id);
+const legacyIds = libraries.libraries.filter((l) => l.kind === 'legacy').map((l) => l.id);
 
 /** Файл библиотеки — по fileKey (нужен enablePrivatePluginApi). */
 const library = libraries.libraries.find((l) => l.fileKey === figma.fileKey);
@@ -214,7 +217,7 @@ async function buildIndex() {
 async function scan() {
   // Фреймы, заменённые прошлым применением, удаляются окончательно — их отмена больше недоступна.
   finalizeFrames();
-  const indexes: LibraryIndex[] = await loadIndexes(allIds);
+  const indexes: LibraryIndex[] = await loadIndexes(aidIds);
   if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
   const selection = figma.currentPage.selection;
   const scope = selection.length ? 'selection' : 'page';
@@ -423,10 +426,13 @@ async function select(nodeIds: string[]) {
  */
 async function measure(pageIds: string[], product?: string) {
   if (!pageIds.length) throw new Error('Выберите хотя бы одну страницу.');
-  const indexes = await loadIndexes(allIds);
+  const indexes = await loadIndexes(aidIds);
   if (!indexes.length) throw new Error('Нет ни одного индекса библиотек: откройте файл библиотеки и соберите индекс.');
   const lookup = buildLookup(indexes);
   const byName = buildCandidates(indexes);
+  // Старые библиотеки продукта: их ключи делят внешнее на legacy и other. Ни одного индекса — всё внешнее legacy.
+  const legacyIndexes = await loadIndexes(legacyIds);
+  const legacy = legacyIndexes.length ? new Set(legacyIndexes.flatMap((i) => [...i.sets.map((x) => x.key), ...i.entries.map((e) => e.key)])) : undefined;
   const { findings, unreadable, inSets } = await measurePages(pageIds, progress);
   const names = new Map<string, number>();
   for (const f of findings) if (f.remote && !lookup.has(f.componentKey)) names.set(f.name, (names.get(f.name) ?? 0) + 1);
@@ -435,12 +441,14 @@ async function measure(pageIds: string[], product?: string) {
     const m = matchByName(f.name, f, byName, chosen);
     return m.status === 'exact' || m.status === 'stretched';
   };
-  const result = countAdoption(findings.map((f) => adoptionItem(f, lookup, analog)));
+  const result = countAdoption(findings.map((f) => adoptionItem(f, lookup, analog, legacy)));
   const now = new Date();
   const date = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
   const pages = pageIds.map((id) => figma.root.children.find((p) => p.id === id)?.name ?? id).map((page) => ({ fileKey: figma.fileKey ?? '', page }));
   const json = adoptionJson(result, { product: chosen, date, pages, source: `Components Swapper v${__VERSION__}` });
-  post({ type: 'measured', result, json, unreadable, inSets, products: [...new Set(indexes.map((i) => i.product))].sort() });
+  const legacyNames = legacyIndexes.map((i) => libraries.libraries.find((l) => l.id === i.libraryId)?.name ?? i.libraryId);
+  const missingLegacy = libraries.libraries.filter((l) => l.kind === 'legacy' && !legacyIndexes.some((i) => i.libraryId === l.id)).map((l) => l.name);
+  post({ type: 'measured', result, json, unreadable, inSets, products: [...new Set(indexes.map((i) => i.product))].sort(), legacy: { indexed: legacyNames, missing: missingLegacy } });
 }
 
 figma.on('close', finalizeFrames);

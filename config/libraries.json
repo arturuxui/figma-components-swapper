@@ -35,6 +35,24 @@
       "short": "Rider · иконки",
       "fileKey": "n6LppQbTv85yI29h6u30DI",
       "url": "https://www.figma.com/design/n6LppQbTv85yI29h6u30DI"
+    },
+    {
+      "id": "legacy-ds-ui-kit",
+      "product": "shared",
+      "kind": "legacy",
+      "name": "🔥 DS Ui Kit",
+      "short": "Старая · DS Ui Kit",
+      "fileKey": "IpBYXW1UD5m2eQA8XwU4Sq",
+      "url": "https://www.figma.com/design/IpBYXW1UD5m2eQA8XwU4Sq"
+    },
+    {
+      "id": "legacy-ds-icons",
+      "product": "shared",
+      "kind": "legacy",
+      "name": "📖 DS Icon & Illustration",
+      "short": "Старая · DS Icon & Illustration",
+      "fileKey": "6FjhiobrmMZmzBrkox0j3y",
+      "url": "https://www.figma.com/design/6FjhiobrmMZmzBrkox0j3y"
     }
   ]
 }

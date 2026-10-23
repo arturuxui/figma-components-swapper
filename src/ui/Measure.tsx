@@ -125,8 +125,17 @@ function MeasureResult({ measured }: { measured: Measured }) {
       <p class="muted">
         Как в аудите (со скрытыми и иконками): {auditTotal} экземпляров{measured.unreadable ? ` · не прочитано: ${measured.unreadable}` : ''}
         {measured.inSets ? ` · из них внутри наборов компонентов: ${measured.inSets}` : ''}. Скрытые в
-        JSON не входят; «Другие» — 0: плагин не различает внешние библиотеки, всё внешнее не из AID — «Старая».
+        JSON не входят.{' '}
+        {measured.legacy.indexed.length
+          ? `«Старая» — из старых библиотек (${measured.legacy.indexed.join(', ')}), «Другие» — прочие внешние.`
+          : '«Другие» — 0: индексов старых библиотек нет, всё внешнее не из AID — «Старая».'}
       </p>
+      {measured.legacy.missing.length > 0 && (
+        <p class="warn">
+          Нет индекса старых библиотек: {measured.legacy.missing.join(', ')} — откройте файл библиотеки и соберите индекс
+          {measured.legacy.indexed.length ? '; пока их компоненты считаются «Другими».' : '.'}
+        </p>
+      )}
       <textarea readOnly rows={8} value={text} />
       <div class="line">
         <button onClick={download}>Скачать JSON</button>
