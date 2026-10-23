@@ -126,14 +126,15 @@ function MeasureResult({ measured }: { measured: Measured }) {
         Как в аудите (со скрытыми и иконками): {auditTotal} экземпляров{measured.unreadable ? ` · не прочитано: ${measured.unreadable}` : ''}
         {measured.inSets ? ` · из них внутри наборов компонентов: ${measured.inSets}` : ''}. Скрытые в
         JSON не входят.{' '}
-        {measured.legacy.indexed.length
-          ? `«Старая» — из старых библиотек (${measured.legacy.indexed.join(', ')}), «Другие» — прочие внешние.`
-          : '«Другие» — 0: индексов старых библиотек нет, всё внешнее не из AID — «Старая».'}
+        {measured.legacy.indexed.length + measured.legacy.snapshot.length
+          ? `«Старая» — из старых библиотек (${[...measured.legacy.indexed, ...measured.legacy.snapshot.map((n) => `${n} — снимок ключей от ${measured.legacy.snapshotAt}`)].join(', ')}), «Другие» — прочие внешние.`
+          : '«Другие» — 0: ключей старых библиотек нет, всё внешнее не из AID — «Старая».'}
+        {measured.copies !== null && measured.copies > 0 && ` Из «Других» копии из других файлов (не опубликованы ни в одной доступной библиотеке): ${measured.copies}.`}
+        {measured.copies === null && ' Копии из других файлов не посчитаны: в этом файле нельзя подгружать компоненты.'}
       </p>
       {measured.legacy.missing.length > 0 && (
         <p class="warn">
-          Нет индекса старых библиотек: {measured.legacy.missing.join(', ')} — откройте файл библиотеки и соберите индекс
-          {measured.legacy.indexed.length ? '; пока их компоненты считаются «Другими».' : '.'}
+          Нет ключей старых библиотек: {measured.legacy.missing.join(', ')} — их компоненты считаются «Другими».
         </p>
       )}
       <textarea readOnly rows={8} value={text} />

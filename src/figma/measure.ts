@@ -45,3 +45,22 @@ export async function measurePages(pageIds: readonly string[], progress: (text: 
   return out;
 }
 
+
+/**
+ * Опубликован ли компонент в библиотеке, доступной пользователю: такие подгружаются по ключу. Нет — копия из другого
+ * файла (отвязана от библиотеки). `null` — не узнать (например, файл открыт только на чтение и подгрузка запрещена).
+ */
+export async function publishedUnits(units: readonly { key: string; isSet: boolean }[], progress: (text: string) => void): Promise<Map<string, boolean | null>> {
+  const out = new Map<string, boolean | null>();
+  for (let i = 0; i < units.length; i++) {
+    if (i % 20 === 0) progress(`Проверка внешних компонентов: ${i} из ${units.length}`);
+    const u = units[i];
+    try {
+      await (u.isSet ? figma.importComponentSetByKeyAsync(u.key) : figma.importComponentByKeyAsync(u.key));
+      out.set(u.key, true);
+    } catch (e) {
+      out.set(u.key, /not found/i.test(String(e)) ? false : null);
+    }
+  }
+  return out;
+}
