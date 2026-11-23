@@ -46,6 +46,8 @@ export interface ApplyResult {
   unstyled: ApplyIssue[];
   /** Расхождения с компонентом (этап 5): сколько перенесено, сколько приведено к нашему, что не вышло. */
   overrides: { kept: number; reset: number; variants: number; undecided: number; failed: ApplyIssue[] };
+  /** Копия страницы до замены — «было» (#276, дефект 7). */
+  backupPage?: string;
   /** Карточки «нужен вариант» на странице предложений (заполняет main.ts после замены). */
   improvements?: { pageName: string; cards: number };
   errors: ApplyIssue[];
@@ -71,9 +73,30 @@ let journal: JournalEntry[] = [];
 
 export const canUndo = () => journal.length > 0;
 
+/** Копия страницы «было» последнего применения — «Отменить» убирает и её. */
+let backup: PageNode | null = null;
+
 /**
- * Окончательно удалить скрытые фреймы, заменённые экземплярами, — после этого отменить их замену нельзя.
- * Вызывается перед новым сканом и применением и при закрытии плагина.
+ * Копия страницы до замены — рядом с ней, «<страница> · было <дата>». После закрытия плагина отменить замену нельзя,
+ * скрытые фреймы удаляются, — исходный макет остаётся на копии (#276, дефект 7; так же хранит «было» PD).
+ */
+function backupPage(): PageNode {
+  const page = figma.currentPage;
+  const when = new Date().toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+  let copy: PageNode;
+  try {
+    copy = page.clone();
+  } catch (e) {
+    throw new Error(`Не удалось сохранить копию страницы «было» — замена не выполнена: ${e instanceof Error ? e.message : String(e)}`);
+  }
+  copy.name = `${page.name} · было ${when}`;
+  figma.root.insertChild(figma.root.children.indexOf(page) + 1, copy);
+  return copy;
+}
+
+/**
+ * Окончательно удалить скрытые фреймы, заменённые экземплярами, — после этого «Отменить» их не вернёт; исходные
+ * остались на копии страницы «было» (`backupPage`). Вызывается перед новым сканом и применением и при закрытии плагина.
  */
 export function finalizeFrames() {
   for (const entry of journal) {
@@ -119,6 +142,8 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
   journal = [];
   // Отдельный шаг в истории Figma: Ctrl+Z после плагина не захватит то, что было до него.
   commitUndo();
+  backup = backupPage();
+  result.backupPage = backup.name;
 
   const total = groups.reduce((n, g) => n + g.nodeIds.length, 0);
   const swapped: InstanceNode[] = [];
@@ -272,6 +297,8 @@ export async function settleOurs(items: readonly { name: string; nodeIds: string
   };
   finalizeFrames();
   journal = [];
+  // Новый журнал — «Отменить» относится к нему, копию «было» прошлой замены не трогает.
+  backup = null;
   commitUndo();
   const total = items.reduce((n, i) => n + i.nodeIds.length, 0);
   let done = 0;
@@ -333,6 +360,9 @@ export async function undoSwaps(progress: (text: string) => void): Promise<{ res
     }
   }
   journal = [];
+  // Замена отменена — копия «было» больше не нужна (её сделало это же применение).
+  if (backup && !backup.removed && figma.currentPage.id !== backup.id) backup.remove();
+  backup = null;
   commitUndo();
   return { restored, failed };
 }

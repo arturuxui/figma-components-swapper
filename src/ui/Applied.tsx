@@ -24,6 +24,7 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
       </div>
       <p class="muted">
         Пропущены места, которые изменились после скана. Отменить можно кнопкой «Отменить» или Ctrl+Z.
+        {r.backupPage ? ` Макет до замены — на странице «${r.backupPage}».` : ''}
         {r.axesMissing ? ` У ${r.axesMissing} мест не все оси варианта нашлись у нашего набора — по ним вариант по умолчанию.` : ''}
       </p>
       {(r.overrides.kept || r.overrides.reset || r.overrides.variants || r.overrides.undecided) > 0 && (
