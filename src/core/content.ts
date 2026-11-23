@@ -1,7 +1,7 @@
 // Контент экземпляра до и после замены: видимые тексты. Без Figma API — узел описан по форме,
 // узлы Plugin API ей подходят. Часть движка замены.
 
-import type { TextSlot } from './structure';
+import { rawText, type TextSlot } from './structure';
 
 export interface ContentNode {
   type: string;
@@ -56,10 +56,10 @@ export function restoreTexts(before: readonly TextSlot[], after: readonly TextSl
     const i = lost.indexOf(source.text);
     if (i < 0) continue;
     lost.splice(i, 1);
-    out.push({ id: slot.id, text: source.text });
+    out.push({ id: slot.id, text: rawText(source) });
   }
   // Остались один пропавший текст и одна заглушка — однозначно (Alert: «В очередь» в слое `Text`, у нас `✏️Text here`).
   const free = after.filter((t) => t.id && !was.has(t.text) && !out.some((o) => o.id === t.id));
-  if (lost.length === 1 && free.length === 1) out.push({ id: free[0].id!, text: lost[0] });
+  if (lost.length === 1 && free.length === 1) out.push({ id: free[0].id!, text: rawText(before.find((t) => t.text === lost[0])!) });
   return out;
 }

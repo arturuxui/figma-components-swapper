@@ -148,3 +148,14 @@ describe('matchManual — горизонтальный компонент по �
     expect(matchManual(finding('Frame 3', 86, 44, shape(1, 1, 'HORIZONTAL')), badgesByName, 'driver').status).toBe('none');
   });
 });
+
+describe('matchManual: компонент со старыми именами (#276, дефект 1)', () => {
+  const tarif = entries.find((e) => e.key === 'tarif')!;
+  const one: LibraryIndex = { ...index, sets: [], entries: [tarif] };
+  const frame = finding('Frame 1', 360, 64, shape(2, 1, 'HORIZONTAL', ['booster']));
+
+  it('под несколькими именами не спорит сам с собой — similar', () => {
+    const renamed = new Map([['tarif', ['tariff old', 'tariff older']]]);
+    expect(matchManual(frame, buildCandidates([one], { renamed }), 'driver')).toMatchObject({ status: 'similar', target: { key: 'tarif' }, alternatives: [{ key: 'tarif' }] });
+  });
+});

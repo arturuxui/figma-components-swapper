@@ -32,9 +32,15 @@ export interface StructNode {
 export interface TextSlot {
   /** Имя слоя. */
   name: string;
+  /** Текст без пробелов по краям — для сравнения. */
   text: string;
+  /** Текст как в слое, если отличается от `text`, — его и пишем (#276, дефект 4). */
+  raw?: string;
   id?: string;
 }
+
+/** Текст слота для записи в слой: как был, с пробелами и переводами строк по краям. */
+export const rawText = (s: TextSlot) => s.raw ?? s.text;
 
 export interface Signature {
   width: number;
@@ -86,7 +92,10 @@ export function signature(root: StructNode): Signature {
       }
       if (n.type === 'INSTANCE') sig.parts.push(n.mainName ?? n.name);
     }
-    if (n.type === 'TEXT' && typeof n.characters === 'string' && n.characters.trim()) sig.texts.push({ name: n.name, text: n.characters.trim(), id: n.id });
+    if (n.type === 'TEXT' && typeof n.characters === 'string' && n.characters.trim()) {
+      const text = n.characters.trim();
+      sig.texts.push({ name: n.name, text, ...(text !== n.characters && { raw: n.characters }), id: n.id });
+    }
     for (const c of n.children ?? []) visit(c, false);
   };
   visit(root, true);
@@ -182,7 +191,7 @@ export function mapTexts(source: readonly TextSlot[], slots: readonly { name: st
   slots.forEach((slot, i) => {
     if (count(slots, slot.name) !== 1 || count(source, slot.name) !== 1) return;
     const j = source.findIndex((s) => s.name === slot.name);
-    out[i] = source[j].text;
+    out[i] = rawText(source[j]);
     used.add(j);
   });
   const rest = source.map((s, j) => ({ s, j })).filter(({ j }) => !used.has(j));
@@ -191,7 +200,7 @@ export function mapTexts(source: readonly TextSlot[], slots: readonly { name: st
     if (at < 0) return null;
     const [x] = rest.splice(at, 1);
     used.add(x.j);
-    return x.s.text;
+    return rawText(x.s);
   };
   // Сначала слоты, у которых вид известен (в компоненте есть текст): тот же вид — по порядку.
   out.forEach((v, i) => {

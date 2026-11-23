@@ -7,7 +7,7 @@
 // размер — как у варианта (±20 %), устройство похоже не меньше, чем у «Имя и устройство» (2б).
 
 import type { ManualFinding } from './manual';
-import { normalizeName, sizeDistance, SIZE_TOLERANCE, type Candidate, type MatchResult } from './match';
+import { normalizeName, sizeDistance, SIZE_TOLERANCE, uniqueCandidates, type Candidate, type MatchResult } from './match';
 import { structureScore, type Shape } from './structure';
 
 /** Устройство фрейма и варианта похоже хотя бы настолько (как NAMED_MIN в 2б). */
@@ -60,12 +60,10 @@ function bestVariant(f: ManualFinding, c: Candidate): number {
 export function matchComposite(f: ManualFinding, byName: ReadonlyMap<string, Candidate[]>, product?: string): MatchResult {
   if (!f.visual || !f.shape.parts.length) return { status: 'none', alternatives: [] };
   const found: { c: Candidate; s: number; named: boolean }[] = [];
-  for (const list of byName.values()) {
-    for (const c of list) {
-      if ((product && c.product !== product) || c.kind === 'icons') continue;
-      const s = bestVariant(f, c);
-      if (s >= COMPOSITE_MIN) found.push({ c, s, named: suffixName(f.name, c.name) });
-    }
+  for (const c of uniqueCandidates(byName)) {
+    if ((product && c.product !== product) || c.kind === 'icons') continue;
+    const s = bestVariant(f, c);
+    if (s >= COMPOSITE_MIN) found.push({ c, s, named: suffixName(f.name, c.name) });
   }
   if (!found.length) return { status: 'none', alternatives: [] };
   found.sort((a, b) => Number(b.named) - Number(a.named) || b.s - a.s);

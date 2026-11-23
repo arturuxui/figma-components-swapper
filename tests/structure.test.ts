@@ -44,7 +44,22 @@ describe('pickByStructure', () => {
   });
 });
 
+describe('signature: текст с пробелами по краям (#276, дефект 4)', () => {
+  it('сравнивается без них, а как был — в raw', () => {
+    const sig = signature(frame('x', 10, 10, [text('a', ' Цена\n'), text('b', 'Итого')]));
+    expect(sig.texts).toEqual([
+      { name: 'a', text: 'Цена', raw: ' Цена\n', id: undefined },
+      { name: 'b', text: 'Итого', id: undefined },
+    ]);
+  });
+});
+
 describe('mapTexts', () => {
+  it('ставит текст как был, в lost — без пробелов по краям (#276, дефект 4)', () => {
+    const source = [{ name: 'Title', text: 'Мотивация', raw: 'Мотивация\n' }, { name: 'Extra', text: 'лишний', raw: ' лишний' }];
+    expect(mapTexts(source, [{ name: 'Title' }])).toEqual({ texts: ['Мотивация\n'], lost: ['лишний'] });
+  });
+
   it('сначала по единственному совпавшему имени, остальные по порядку', () => {
     const source = [
       { name: '✏️ Title', text: 'Мотивация' },
