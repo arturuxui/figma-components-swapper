@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { iconsToRestore, isOutlinedText, mapIcons, mapTexts, pickByStructure, shapeOf, signature, structureScore, type StructNode } from '../src/core/structure';
+import { iconsToRestore, isOutlinedText, mapIcons, mapTexts, pickByStructure, shapeOf, signature, structureScore, unstyledTexts, type StructNode } from '../src/core/structure';
 
 const text = (name: string, characters: string, visible = true): StructNode => ({ type: 'TEXT', name, characters, visible, width: 100, height: 20 });
 const icon = (mainName: string, visible = true): StructNode => ({ type: 'INSTANCE', name: 'icon', mainName, visible, width: 24, height: 24 });
@@ -51,6 +51,14 @@ describe('signature: текст с пробелами по краям (#276, д�
       { name: 'a', text: 'Цена', raw: ' Цена\n', id: undefined },
       { name: 'b', text: 'Итого', id: undefined },
     ]);
+  });
+});
+
+describe('unstyledTexts: смешанные стили (#276, дефект 4, вариант «а»)', () => {
+  it('из записанных — только тексты со смешанными стилями, по одному разу', () => {
+    const sig = signature(frame('x', 10, 10, [{ ...text('price', 'Итого 500 ₽ '), mixedStyle: true }, text('title', 'Заказ'), { ...text('n', '2'), mixedStyle: true }]));
+    expect(sig.texts[0].mixedStyle).toBe(true);
+    expect(unstyledTexts(sig.texts, ['Заказ', 'Итого 500 ₽ ', null])).toEqual(['Итого 500 ₽']);
   });
 });
 

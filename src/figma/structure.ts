@@ -23,7 +23,11 @@ export async function snapshot(node: SceneNode, depth = 0, maxDepth = MAX_DEPTH)
     height: node.height,
     layoutMode: 'layoutMode' in node ? node.layoutMode : undefined,
   };
-  if (node.type === 'TEXT') out.characters = node.characters;
+  if (node.type === 'TEXT') {
+    out.characters = node.characters;
+    const mixed = (v: unknown) => v === figma.mixed;
+    if ([node.fontName, node.fontSize, node.fills, node.textStyleId, node.fillStyleId, node.textDecoration].some(mixed)) out.mixedStyle = true;
+  }
   if ('isMask' in node && node.isMask) out.isMask = true;
   if (node.type === 'FRAME') {
     if (hasVisual(node)) out.visual = true;

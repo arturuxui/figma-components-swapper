@@ -18,6 +18,7 @@ export interface Preview {
   after: string;
   pick: VariantPick | null;
   lost: string[];
+  unstyled?: string[];
   sizeChanged: boolean;
   placeholders?: string[];
   iconsMissing?: string[];
@@ -466,6 +467,7 @@ function Overrides({
 function PreviewNotes({ preview: p }: { preview: Preview }) {
   const notes: string[] = [];
   if (p.lost.length) notes.push(`Пропадут тексты: ${p.lost.map((s) => `«${s}»`).join(', ')}`);
+  if (p.unstyled?.length) notes.push(`Стиль части текста станет как в компоненте: ${p.unstyled.map((s) => `«${s}»`).join(', ')}`);
   if (p.pick?.unmatched.length) notes.push(`Не нашлось в наших вариантах: ${p.pick.unmatched.join(', ')} — будет вариант по умолчанию по этим осям`);
   if (p.sizeChanged) notes.push('Размер изменится');
   if (p.placeholders?.length) notes.push(`Останутся тексты компонента: ${p.placeholders.map((s) => `«${s}»`).join(', ')}`);

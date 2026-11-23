@@ -26,6 +26,8 @@ export interface StructNode {
   detached?: boolean;
   /** Имя главного компонента (у набора — имя набора) — для экземпляров. */
   mainName?: string;
+  /** У текста разные стили по кускам (часть жирным, другим цветом). */
+  mixedStyle?: boolean;
   children?: StructNode[];
 }
 
@@ -36,11 +38,29 @@ export interface TextSlot {
   text: string;
   /** Текст как в слое, если отличается от `text`, — его и пишем (#276, дефект 4). */
   raw?: string;
+  /** Стили по кускам разные: при переносе текст получит один стиль нашего слоя (#276, дефект 4). */
+  mixedStyle?: boolean;
   id?: string;
 }
 
 /** Текст слота для записи в слой: как был, с пробелами и переводами строк по краям. */
 export const rawText = (s: TextSlot) => s.raw ?? s.text;
+
+/**
+ * Какие из записанных текстов были со смешанными стилями: в нашем слое они получат один стиль — стиль компонента
+ * (решение инженера 2026-11-23, вариант «а»), а дизайнеру об этом говорим. Возвращает тексты без пробелов по краям.
+ */
+export function unstyledTexts(source: readonly TextSlot[], written: readonly (string | null)[]): string[] {
+  const pool = source.filter((s) => s.mixedStyle);
+  const out: string[] = [];
+  for (const w of written) {
+    const i = w === null ? -1 : pool.findIndex((s) => rawText(s) === w);
+    if (i < 0) continue;
+    out.push(pool[i].text);
+    pool.splice(i, 1);
+  }
+  return out;
+}
 
 export interface Signature {
   width: number;
@@ -94,7 +114,7 @@ export function signature(root: StructNode): Signature {
     }
     if (n.type === 'TEXT' && typeof n.characters === 'string' && n.characters.trim()) {
       const text = n.characters.trim();
-      sig.texts.push({ name: n.name, text, ...(text !== n.characters && { raw: n.characters }), id: n.id });
+      sig.texts.push({ name: n.name, text, ...(text !== n.characters && { raw: n.characters }), ...(n.mixedStyle && { mixedStyle: true }), id: n.id });
     }
     for (const c of n.children ?? []) visit(c, false);
   };

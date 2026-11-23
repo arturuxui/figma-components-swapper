@@ -42,6 +42,8 @@ export interface ApplyResult {
   axesMissing: number;
   /** Фреймы: тексты и иконки компонента, которые остались как в библиотеке, — проверить глазами. */
   leftovers: ApplyIssue[];
+  /** Тексты со смешанными стилями (часть жирным и т. п.) получили один стиль нашего слоя — проверить глазами. */
+  unstyled: ApplyIssue[];
   /** Расхождения с компонентом (этап 5): сколько перенесено, сколько приведено к нашему, что не вышло. */
   overrides: { kept: number; reset: number; variants: number; undecided: number; failed: ApplyIssue[] };
   /** Карточки «нужен вариант» на странице предложений (заполняет main.ts после замены). */
@@ -109,6 +111,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     lostTexts: [],
     axesMissing: 0,
     leftovers: [],
+    unstyled: [],
     overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
     errors: [],
   };
@@ -155,12 +158,21 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     // Запоминаем только то, что после замены будет выглядеть иначе, чем наш компонент.
     const against = choice === undefined ? undefined : (await chooseComponent(await importTarget(target), node)).component;
     const captured = choice === undefined ? undefined : await captureOverrides(node, against);
-    const outcome = await swapInstance(node, target);
+    let outcome: Awaited<ReturnType<typeof swapInstance>>;
+    try {
+      outcome = await swapInstance(node, target);
+    } catch (e) {
+      // Упало после самой замены (шрифт текста и т. п.) — замена в макете есть, в журнал её, чтобы «Отменить» вернул
+      // (#276, дефект 2).
+      if ((await readMain(node))?.id !== previous.id) journal.push({ kind: 'swap', node, previous, captured });
+      throw e;
+    }
+    journal.push({ kind: 'swap', node, previous, captured });
     // Многоцветная наша иконка (логотип) остаётся в своих цветах.
     if (color && !iconColor(node).multicolor) paintIcon(node, color);
-    journal.push({ kind: 'swap', node, previous, captured });
     if (captured?.length) await settleOverrides(node, name, captured, choice ?? null);
     if (outcome.lost.length) result.lostTexts.push({ nodeId: node.id, name, message: outcome.lost.map((t) => `«${t}»`).join(', ') });
+    if (outcome.unstyled.length) result.unstyled.push({ nodeId: node.id, name, message: outcome.unstyled.map((t) => `«${t}»`).join(', ') });
     if (outcome.pick?.unmatched.length) result.axesMissing++;
     return true;
   };
@@ -182,6 +194,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
           result.replaced++;
           result.frames++;
           if (out.lost.length) result.lostTexts.push({ nodeId: out.instance.id, name: group.name, message: out.lost.map((t) => `«${t}»`).join(', ') });
+          if (out.unstyled.length) result.unstyled.push({ nodeId: out.instance.id, name: group.name, message: out.unstyled.map((t) => `«${t}»`).join(', ') });
           const left = [...out.placeholders.map((t) => `текст «${t}»`), ...out.iconsMissing.map((i) => `иконка ${i} (нет у нас)`)];
           if (left.length) result.leftovers.push({ nodeId: out.instance.id, name: group.name, message: left.join(', ') });
         } catch (e) {
@@ -253,6 +266,7 @@ export async function settleOurs(items: readonly { name: string; nodeIds: string
     lostTexts: [],
     axesMissing: 0,
     leftovers: [],
+    unstyled: [],
     overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
     errors: [],
   };

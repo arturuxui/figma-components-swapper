@@ -45,6 +45,7 @@ export type ToUi =
       after: Uint8Array;
       pick: VariantPick | null;
       lost: string[];
+      unstyled?: string[];
       sizeChanged: boolean;
       placeholders?: string[];
       iconsMissing?: string[];

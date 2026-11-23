@@ -7,7 +7,7 @@
 // (как у фреймов): у старого Alert осей нет, и вариант по умолчанию был с двумя кнопками вместо одной.
 
 import { lostTexts, restoreTexts, visibleTexts, type ContentNode } from '../core/content';
-import { ICON_MAX, iconsToRestore, pickByStructure, signature, type Signature } from '../core/structure';
+import { ICON_MAX, iconsToRestore, pickByStructure, signature, unstyledTexts, type Signature } from '../core/structure';
 import { snapshot } from './structure';
 import type { Candidate } from '../core/match';
 import { pickVariant, type VariantPick } from '../core/variants';
@@ -65,6 +65,8 @@ export async function chooseComponent(target: ComponentNode | ComponentSetNode, 
 export interface SwapOutcome {
   pick: VariantPick | null;
   lost: string[];
+  /** Возвращённые тексты со смешанными стилями — в нашем слое у них один стиль. */
+  unstyled: string[];
   sizeChanged: boolean;
 }
 
@@ -107,11 +109,11 @@ export async function swapInstance(node: InstanceNode, target: Pick<Candidate, '
     const slot = name && id ? await figma.getNodeByIdAsync(id) : null;
     if (slot?.type === 'INSTANCE' && icons[i]) slot.swapComponent(icons[i]!);
   }
-  if (lostTexts(before, visibleTexts(node as unknown as ContentNode)).length) {
-    for (const { id, text } of restoreTexts(was.texts, signature(await snapshot(node)).texts)) await writeText(node, id, text);
-  }
+  const restored = lostTexts(before, visibleTexts(node as unknown as ContentNode)).length ? restoreTexts(was.texts, signature(await snapshot(node)).texts) : [];
+  for (const { id, text } of restored) await writeText(node, id, text);
   return {
     pick,
+    unstyled: unstyledTexts(was.texts, restored.map((r) => r.text)),
     lost: lostTexts(before, visibleTexts(node as unknown as ContentNode)),
     sizeChanged: Math.abs(node.width - width) > 0.5 || Math.abs(node.height - height) > 0.5,
   };
