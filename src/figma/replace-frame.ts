@@ -4,7 +4,7 @@
 // окончательно он удаляется при следующем скане, применении или закрытии плагина (`finalizeFrames`).
 
 import { matchByName, type Candidate } from '../core/match';
-import { mapIcons, mapTexts, pickByStructure, signature } from '../core/structure';
+import { mapIcons, mapTexts, pickByStructure, signature, unstyledTexts } from '../core/structure';
 import { snapshot } from './structure';
 import { importTarget, variantSignature } from './swap';
 
@@ -19,6 +19,8 @@ export interface FrameOutcome {
   placeholders: string[];
   /** Иконки фрейма, которых нет у нас по имени, — остались иконки компонента. */
   iconsMissing: string[];
+  /** Тексты со смешанными стилями — в нашем слое у них один стиль. */
+  unstyled: string[];
   /** Похожесть устройства фрейма и выбранного варианта, 0..1. */
   score: number;
 }
@@ -119,7 +121,7 @@ export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'ke
     } catch {
       // без метки: скан всё равно пропускает скрытые фреймы, заменённые в этом запуске (журнал)
     }
-    return { instance, lost, placeholders, iconsMissing, score: pick.score };
+    return { instance, lost, placeholders, iconsMissing, unstyled: unstyledTexts(frameSig.texts, texts), score: pick.score };
   } catch (e) {
     if (!instance.removed) instance.remove();
     throw e;

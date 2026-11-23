@@ -86,6 +86,7 @@ export function App() {
             after: url(msg.after),
             pick: msg.pick,
             lost: msg.lost,
+            unstyled: msg.unstyled,
             sizeChanged: msg.sizeChanged,
             placeholders: msg.placeholders,
             iconsMissing: msg.iconsMissing,

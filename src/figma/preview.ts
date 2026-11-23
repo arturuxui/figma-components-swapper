@@ -53,6 +53,7 @@ async function previewFrame(frame: FrameNode, target: Pick<Candidate, 'key' | 'i
       after,
       pick: null,
       lost: out.lost,
+      unstyled: out.unstyled,
       sizeChanged: Math.abs(instance.width - frame.width) > 0.5 || Math.abs(instance.height - frame.height) > 0.5,
       placeholders: out.placeholders,
       iconsMissing: out.iconsMissing,

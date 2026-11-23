@@ -41,6 +41,7 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
       <Issues title="Расхождения не перенеслись — проверьте" items={r.overrides.failed} />
       <Issues title="Пропали тексты — проверьте" items={r.lostTexts} />
       <Issues title="Фреймы: осталось от компонента — проверьте" items={r.leftovers} />
+      <Issues title="Стиль части текста не перенесён (стал как в компоненте) — проверьте" items={r.unstyled} />
       <Issues title="Ошибки" items={r.errors} />
       {!r.lostTexts.length && !r.errors.length && <p>Тексты сохранились везде. Пересканируйте, чтобы увидеть, что осталось.</p>}
     </>
