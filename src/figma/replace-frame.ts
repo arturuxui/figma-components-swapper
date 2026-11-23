@@ -4,6 +4,7 @@
 // окончательно он удаляется при следующем скане, применении или закрытии плагина (`finalizeFrames`).
 
 import { matchByName, type Candidate } from '../core/match';
+import { lostTexts, visibleTexts, type ContentNode } from '../core/content';
 import { mapIcons, mapTexts, pickByStructure, signature, unstyledTexts } from '../core/structure';
 import { snapshot } from './structure';
 import { importTarget, variantSignature } from './swap';
@@ -92,6 +93,8 @@ export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'ke
 
     const instSig = signature(await snapshot(instance));
     const { texts, lost } = mapTexts(frameSig.texts, instSig.texts);
+    // Тексты глубже снимка устройства не переносятся — пусть хотя бы попадут в «Пропали тексты» (#276, дефект 5).
+    lost.push(...lostTexts(visibleTexts(frame as unknown as ContentNode), frameSig.texts.map((t) => t.text)));
     const placeholders: string[] = [];
     for (let i = 0; i < texts.length; i++) {
       const slot = instSig.texts[i];

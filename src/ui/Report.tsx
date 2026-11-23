@@ -63,7 +63,7 @@ interface Props {
 }
 
 export function Report({ scanned, matched, decisions, previews, busy, onDecide, onProduct, onPreview, proposed, onPropose, overrideChoices, onChooseOverride, onSettle }: Props) {
-  const { report, scopeName, unreadable } = scanned;
+  const { report, scopeName, unreadable, manualSkipped } = scanned;
   // Вложенные повторы и варианты не показываем отдельно: они войдут в черновик внешнего или главного.
   const repeats = scanned.repeats.filter((r) => !r.nestedIn && !r.variantOf);
   // В черновики сразу отмечены повторы без пометки «Похож на наш …».
@@ -119,6 +119,9 @@ export function Report({ scanned, matched, decisions, previews, busy, onDecide, 
         Отвязаны от наших компонентов: {t.detachedOurs}, от других: {t.detachedOther}
         {unreadable ? ` · не прочитано экземпляров: ${unreadable}` : ''}
       </p>
+      {manualSkipped ? (
+        <p class="error">Ручных фреймов больше 2000 — {manualSkipped} не проверены. Выделите часть страницы и пересканируйте.</p>
+      ) : null}
 
       {matched && matched.products.length > 1 && (
         <label class="row">

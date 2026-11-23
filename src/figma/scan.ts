@@ -13,6 +13,8 @@ export interface ScanResult {
   unreadable: number;
   /** Ручные фреймы, прошедшие быстрый отбор (`manual`), — их устройство считает вызывающий. */
   manual: { node: FrameNode; screen: ScreenRef }[];
+  /** Ручные фреймы сверх предела MANUAL_LIMIT — не проверены; об этом говорим в отчёте (#276, дефект 5). */
+  manualSkipped: number;
 }
 
 /** Больше ручных кандидатов не собираем: снимок устройства каждого стоит времени. */
@@ -31,7 +33,7 @@ export async function scanNodes(
   /** Быстрый отбор ручных фреймов (размер или имя как у нашего компонента). Нет — ручные не ищутся. */
   manual?: (node: FrameNode) => boolean,
 ): Promise<ScanResult> {
-  const result: ScanResult = { instances: [], detached: [], unreadable: 0, manual: [] };
+  const result: ScanResult = { instances: [], detached: [], unreadable: 0, manual: [], manualSkipped: 0 };
   let seen = 0;
 
   /** Экран — фрейм верхнего уровня страницы или секции; ручные кандидаты — только внутри экранов (не аннотации на холсте). */
@@ -95,10 +97,10 @@ export async function scanNodes(
       insideScreen &&
       !isScreen(node) &&
       node.children.length > 0 &&
-      result.manual.length < MANUAL_LIMIT &&
       manual(node)
     ) {
-      result.manual.push({ node, screen });
+      if (result.manual.length < MANUAL_LIMIT) result.manual.push({ node, screen });
+      else result.manualSkipped++;
     }
 
     if (hasChildren(node)) {

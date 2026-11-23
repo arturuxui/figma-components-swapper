@@ -254,17 +254,42 @@ const KEYS: Record<OverrideField, string[]> = {
   textColor: ['fillStyleId', 'fills'],
   stroke: ['strokeStyleId', 'strokes'],
   effect: ['effectStyleId', 'effects'],
-  textStyle: ['textStyleId', 'fontName', 'fontSize'],
+  textStyle: ['textStyleId', 'fontName', 'fontSize', 'lineHeight', 'letterSpacing'],
   visible: ['visible'],
   opacity: ['opacity'],
   radius: ['cornerRadius', 'topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'],
 };
 
+/** Поля, которые привязываются к переменной целиком (`setBoundVariable`), — привязку переносим вместе со значением. */
+const BINDABLE: Partial<Record<OverrideField, string[]>> = {
+  textStyle: ['fontSize', 'lineHeight', 'letterSpacing'],
+  opacity: ['opacity'],
+  radius: ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius'],
+};
+/** Ключ значений поля с привязками: имя свойства → id переменной. */
+const BOUND = 'boundVariables';
+
 function read(node: SceneNode, field: OverrideField): FieldValues {
   const n = node as unknown as Record<string, unknown>;
   const out: FieldValues = {};
   for (const k of KEYS[field]) if (k in n) out[k] = n[k];
+  const bound = (node as { boundVariables?: Record<string, { id?: string } | undefined> }).boundVariables ?? {};
+  const ids: Record<string, string> = {};
+  for (const k of BINDABLE[field] ?? []) if (bound[k]?.id) ids[k] = bound[k]!.id!;
+  if (Object.keys(ids).length) out[BOUND] = ids;
   return out;
+}
+
+/**
+ * Привязки к переменным — после сырых значений: число радиуса, прозрачности или кегля иначе отвязывает слой от токена
+ * (#276, дефект 6). Переменная не нашлась — остаётся значение.
+ */
+async function bind(node: SceneNode, v: FieldValues) {
+  const ids = (v[BOUND] ?? {}) as Record<string, string>;
+  for (const [k, id] of Object.entries(ids)) {
+    const variable = await figma.variables.getVariableByIdAsync(id).catch(() => null);
+    if (variable) (node as unknown as { setBoundVariable(f: string, v: Variable): void }).setBoundVariable(k, variable);
+  }
 }
 
 const mixed = (v: unknown) => typeof v === 'symbol';
@@ -304,6 +329,10 @@ async function write(node: SceneNode, field: OverrideField, v: FieldValues): Pro
       await figma.loadFontAsync(v.fontName as FontName);
       node.fontName = v.fontName as FontName;
       node.fontSize = v.fontSize as number;
+      // Высота строки и разрядка входят в сравнение стиля — переносим и их (смешанные по кускам — не трогаем).
+      if (v.lineHeight !== undefined && !mixed(v.lineHeight)) node.lineHeight = v.lineHeight as LineHeight;
+      if (v.letterSpacing !== undefined && !mixed(v.letterSpacing)) node.letterSpacing = v.letterSpacing as LetterSpacing;
+      await bind(node, v);
       return true;
     }
     case 'visible':
@@ -311,10 +340,12 @@ async function write(node: SceneNode, field: OverrideField, v: FieldValues): Pro
       return true;
     case 'opacity':
       n.opacity = v.opacity;
+      await bind(node, v);
       return true;
     case 'radius':
       if (!mixed(v.cornerRadius)) n.cornerRadius = v.cornerRadius;
       else for (const k of ['topLeftRadius', 'topRightRadius', 'bottomLeftRadius', 'bottomRightRadius']) n[k] = v[k];
+      await bind(node, v);
       return true;
   }
 }
