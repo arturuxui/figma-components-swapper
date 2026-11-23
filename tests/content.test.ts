@@ -47,4 +47,13 @@ describe('restoreTexts', () => {
     const after = [t('Key', 'q', 'a1'), t('Key', 'w', 'a2'), t('Label', 'return', 'a3')];
     expect(restoreTexts(before, after)).toEqual([]);
   });
+
+  it('пишет текст как был — с переводом строки и пробелом по краям (#276, дефект 4)', () => {
+    const before = [{ name: 'Address', text: 'Комсомольский пр-т', raw: 'Комсомольский пр-т\n' }, { name: 'Text', text: 'В очередь', raw: ' В очередь' }];
+    const after = [t('Address', 'Улица', 'a1'), t('Label', 'Кнопка', 'a2')];
+    expect(restoreTexts(before, after)).toEqual([
+      { id: 'a1', text: 'Комсомольский пр-т\n' },
+      { id: 'a2', text: ' В очередь' },
+    ]);
+  });
 });

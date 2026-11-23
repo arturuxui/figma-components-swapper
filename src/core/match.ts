@@ -203,16 +203,24 @@ export interface LayoutIcon {
   name: string;
 }
 
-/** Иконки продукта с отпечатком — с ними сравнивается рисунок. */
-export function iconCandidates(byName: ReadonlyMap<string, Candidate[]>, product?: string): Candidate[] {
+/**
+ * Все кандидаты по одному разу: компонент со старыми именами лежит под каждым из них (`buildCandidates`), и без
+ * этого спорит сам с собой — отрыв от второго места 0 (#276, дефект 1).
+ */
+export function uniqueCandidates(byName: ReadonlyMap<string, Candidate[]>): Candidate[] {
   const seen = new Set<string>();
   const out: Candidate[] = [];
   for (const list of byName.values()) for (const c of list) {
-    if (c.kind !== 'icons' || !c.icon || seen.has(c.key) || (product && c.product !== product)) continue;
+    if (seen.has(c.key)) continue;
     seen.add(c.key);
     out.push(c);
   }
   return out;
+}
+
+/** Иконки продукта с отпечатком — с ними сравнивается рисунок. */
+export function iconCandidates(byName: ReadonlyMap<string, Candidate[]>, product?: string): Candidate[] {
+  return uniqueCandidates(byName).filter((c) => c.kind === 'icons' && c.icon && (!product || c.product === product));
 }
 
 /**

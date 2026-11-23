@@ -6,7 +6,7 @@
 // (правило 32: чистая обёртка без заливки, обводки и эффектов — это раскладка, а не компонент).
 
 import { matchComposite } from './composite';
-import { normalizeName, sizeDistance, SIZE_TOLERANCE, type Candidate, type MatchResult } from './match';
+import { normalizeName, sizeDistance, SIZE_TOLERANCE, uniqueCandidates, type Candidate, type MatchResult } from './match';
 import type { Origin, ReportGroup, ScreenRef } from './scan-report';
 import { structureScore, type Shape } from './structure';
 
@@ -85,12 +85,10 @@ export function matchManual(f: ManualFinding, byName: ReadonlyMap<string, Candid
 
   if (!f.visual || f.shape.textCount + f.shape.iconCount + f.shape.parts.length < SIMILAR_MIN_ELEMENTS) return matchComposite(f, byName, product);
   const all: { c: Candidate; s: number }[] = [];
-  for (const list of byName.values()) {
-    for (const c of list) {
-      if (!inProduct(c) || c.kind === 'icons') continue;
-      const s = best(f, c);
-      if (s >= 0) all.push({ c, s });
-    }
+  for (const c of uniqueCandidates(byName)) {
+    if (!inProduct(c) || c.kind === 'icons') continue;
+    const s = best(f, c);
+    if (s >= 0) all.push({ c, s });
   }
   all.sort((a, b) => b.s - a.s);
   const [first, second] = all;
