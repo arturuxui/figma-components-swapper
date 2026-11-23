@@ -155,10 +155,18 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     // Запоминаем только то, что после замены будет выглядеть иначе, чем наш компонент.
     const against = choice === undefined ? undefined : (await chooseComponent(await importTarget(target), node)).component;
     const captured = choice === undefined ? undefined : await captureOverrides(node, against);
-    const outcome = await swapInstance(node, target);
+    let outcome: Awaited<ReturnType<typeof swapInstance>>;
+    try {
+      outcome = await swapInstance(node, target);
+    } catch (e) {
+      // Упало после самой замены (шрифт текста и т. п.) — замена в макете есть, в журнал её, чтобы «Отменить» вернул
+      // (#276, дефект 2).
+      if ((await readMain(node))?.id !== previous.id) journal.push({ kind: 'swap', node, previous, captured });
+      throw e;
+    }
+    journal.push({ kind: 'swap', node, previous, captured });
     // Многоцветная наша иконка (логотип) остаётся в своих цветах.
     if (color && !iconColor(node).multicolor) paintIcon(node, color);
-    journal.push({ kind: 'swap', node, previous, captured });
     if (captured?.length) await settleOverrides(node, name, captured, choice ?? null);
     if (outcome.lost.length) result.lostTexts.push({ nodeId: node.id, name, message: outcome.lost.map((t) => `«${t}»`).join(', ') });
     if (outcome.pick?.unmatched.length) result.axesMissing++;

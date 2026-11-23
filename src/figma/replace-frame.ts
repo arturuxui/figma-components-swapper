@@ -73,42 +73,55 @@ export async function variantFor(frame: FrameNode, target: Pick<Candidate, 'key'
   return { component, frameSig, pick };
 }
 
+/** Фрейм лежит внутри экземпляра: туда нельзя вставить слой (#276, дефект 3). */
+function insideInstance(node: BaseNode): boolean {
+  for (let p = node.parent; p && p.type !== 'PAGE'; p = p.parent) if (p.type === 'INSTANCE') return true;
+  return false;
+}
+
 export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'key' | 'isSet'>, ctx: FrameContext): Promise<FrameOutcome> {
+  if (insideInstance(frame)) throw new Error('Фрейм внутри экземпляра — туда нельзя вставить наш компонент; замените вручную.');
   const { component, frameSig, pick } = await variantFor(frame, target);
 
   const instance = component.createInstance();
-  place(instance, frame);
-
-  const instSig = signature(await snapshot(instance));
-  const { texts, lost } = mapTexts(frameSig.texts, instSig.texts);
-  const placeholders: string[] = [];
-  for (let i = 0; i < texts.length; i++) {
-    const slot = instSig.texts[i];
-    if (texts[i] === null) placeholders.push(slot.text);
-    else if (slot.id) await setText(slot.id, texts[i] as string);
-  }
-
-  const iconsMissing: string[] = [];
-  const icons = mapIcons(frameSig.icons, instSig.icons);
-  for (let i = 0; i < icons.length; i++) {
-    const name = icons[i];
-    const id = instSig.iconIds[i];
-    if (!name || !id) continue;
-    const match = matchByName(name, { width: 24, height: 24 }, ctx.byName, ctx.product);
-    const node = await figma.getNodeByIdAsync(id);
-    if (match.status !== 'exact' || !match.target || !node || node.type !== 'INSTANCE') {
-      iconsMissing.push(name);
-      continue;
-    }
-    const icon = await importTarget(match.target);
-    node.swapComponent(icon.type === 'COMPONENT_SET' ? icon.defaultVariant : icon);
-  }
-
-  frame.visible = false;
+  // Упало на полпути (шрифт, импорт иконки) — убираем наш экземпляр: фрейм остаётся как был, без двойника (#276, дефект 2).
   try {
-    frame.setPluginData(REPLACED_MARK, instance.id);
-  } catch {
-    // без метки: скан всё равно пропускает скрытые фреймы, заменённые в этом запуске (журнал)
+    place(instance, frame);
+
+    const instSig = signature(await snapshot(instance));
+    const { texts, lost } = mapTexts(frameSig.texts, instSig.texts);
+    const placeholders: string[] = [];
+    for (let i = 0; i < texts.length; i++) {
+      const slot = instSig.texts[i];
+      if (texts[i] === null) placeholders.push(slot.text);
+      else if (slot.id) await setText(slot.id, texts[i] as string);
+    }
+
+    const iconsMissing: string[] = [];
+    const icons = mapIcons(frameSig.icons, instSig.icons);
+    for (let i = 0; i < icons.length; i++) {
+      const name = icons[i];
+      const id = instSig.iconIds[i];
+      if (!name || !id) continue;
+      const match = matchByName(name, { width: 24, height: 24 }, ctx.byName, ctx.product);
+      const node = await figma.getNodeByIdAsync(id);
+      if (match.status !== 'exact' || !match.target || !node || node.type !== 'INSTANCE') {
+        iconsMissing.push(name);
+        continue;
+      }
+      const icon = await importTarget(match.target);
+      node.swapComponent(icon.type === 'COMPONENT_SET' ? icon.defaultVariant : icon);
+    }
+
+    frame.visible = false;
+    try {
+      frame.setPluginData(REPLACED_MARK, instance.id);
+    } catch {
+      // без метки: скан всё равно пропускает скрытые фреймы, заменённые в этом запуске (журнал)
+    }
+    return { instance, lost, placeholders, iconsMissing, score: pick.score };
+  } catch (e) {
+    if (!instance.removed) instance.remove();
+    throw e;
   }
-  return { instance, lost, placeholders, iconsMissing, score: pick.score };
 }
