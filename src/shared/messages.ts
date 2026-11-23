@@ -35,7 +35,7 @@ export type ToUi =
   | { type: 'init'; library: LibraryInfo | null; libraries: LibraryInfo[]; indexes: IndexSummary[]; pages: PageRef[]; currentPageId: string }
   | { type: 'progress'; text: string }
   | { type: 'indexed'; summary: IndexSummary }
-  | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
+  | { type: 'scanned'; report: ScanReport; scope: ScanScope; scopeName: string; unreadable: number; manualSkipped?: number; repeats: RepeatGroup[]; overrides: OverrideGroup[] }
   | { type: 'matched'; product: string | null; products: string[]; matches: Matches; icons?: IconCheck; renames?: RenameCheck }
   | {
       type: 'preview';

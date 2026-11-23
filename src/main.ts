@@ -270,6 +270,7 @@ async function scan() {
     scope,
     scopeName: scope === 'selection' ? `выделено: ${selection.length}` : figma.currentPage.name,
     unreadable: found.unreadable,
+    manualSkipped: found.manualSkipped,
     repeats,
     overrides,
   });
