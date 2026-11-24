@@ -10,6 +10,7 @@ import type { KeyHit } from '../core/library-index';
 import { matchByName, type Candidate } from '../core/match';
 import type { OverrideChoice } from '../core/overrides';
 import { applyOverride, captureOverrides, restoreOverrides, type CapturedOverride } from './overrides';
+import { retargetReactions, writableReactions } from '../core/reactions';
 import { iconColor, paintIcon } from './icon-geometry';
 import { replaceFrame, type FrameContext } from './replace-frame';
 import { chooseComponent, importTarget, swapInstance } from './swap';
@@ -46,6 +47,8 @@ export interface ApplyResult {
   unstyled: ApplyIssue[];
   /** Расхождения с компонентом (этап 5): сколько перенесено, сколько приведено к нашему, что не вышло. */
   overrides: { kept: number; reset: number; variants: number; undecided: number; failed: ApplyIssue[] };
+  /** Слои, чьи переходы прототипа вели на заменённые фреймы и теперь ведут на наши экземпляры. */
+  reactions: number;
   /** Копия страницы до замены — «было» (#276, дефект 7). */
   backupPage?: string;
   /** Карточки «нужен вариант» на странице предложений (заполняет main.ts после замены). */
@@ -57,7 +60,9 @@ type JournalEntry =
   | { kind: 'swap'; node: InstanceNode; previous: ComponentNode; captured?: CapturedOverride[] }
   /** Наш экземпляр, которому вернули значения компонента («ошибка макета»): при отмене — прежние значения. */
   | { kind: 'props'; node: InstanceNode; captured: CapturedOverride[] }
-  | { kind: 'frame'; frame: FrameNode; instance: InstanceNode; wasVisible: boolean };
+  | { kind: 'frame'; frame: FrameNode; instance: InstanceNode; wasVisible: boolean }
+  /** Слой, чьи переходы вели на заменённый фрейм: при отмене — прежние переходы. */
+  | { kind: 'reactions'; node: SceneNode & ReactionMixin; previous: Reaction[] };
 
 /** Отдельный шаг в истории Figma. В некоторых средах (сервер Figma MCP) API нет — тогда без отдельного шага. */
 function commitUndo() {
@@ -103,7 +108,42 @@ export function finalizeFrames() {
     if (entry.kind !== 'frame' || entry.frame.removed || entry.instance.removed || entry.frame.visible) continue;
     entry.frame.remove();
   }
-  journal = journal.filter((e) => e.kind !== 'frame');
+  // Фреймов больше нет — вернуть переходы на них уже нельзя.
+  journal = journal.filter((e) => e.kind !== 'frame' && e.kind !== 'reactions');
+}
+
+/**
+ * Переходы прототипа, ведущие на заменённые фреймы или их слои, — на наши экземпляры: фрейм удалится, и переход
+ * повиснет (#276, дефект 7). Только текущая страница: прототип не ведёт на другие страницы. Каждый слой — в журнал.
+ */
+async function retargetIncoming(frames: readonly { frame: FrameNode; instance: InstanceNode }[]): Promise<number> {
+  if (!frames.length) return 0;
+  const to = new Map<string, string>();
+  const hidden = new Set<string>();
+  for (const { frame, instance } of frames) {
+    to.set(frame.id, instance.id);
+    hidden.add(frame.id);
+    for (const inner of frame.findAll(() => true)) {
+      to.set(inner.id, instance.id);
+      hidden.add(inner.id);
+    }
+  }
+  let count = 0;
+  // Скрытые фреймы и их слои не трогаем: «Отменить» вернёт их как были, а иначе они удалятся вместе с переходами.
+  const sources = figma.currentPage.findAll((n) => !hidden.has(n.id) && 'reactions' in n && n.reactions.length > 0) as (SceneNode & ReactionMixin)[];
+  for (const node of sources) {
+    const next = retargetReactions(node.reactions, to);
+    if (!next) continue;
+    const previous = writableReactions(node.reactions);
+    try {
+      await node.setReactionsAsync(next);
+      journal.push({ kind: 'reactions', node, previous });
+      count++;
+    } catch {
+      // слой не принимает переходы (внутри чужого экземпляра и т. п.) — останется как был
+    }
+  }
+  return count;
 }
 
 const mainKey = (main: ComponentNode) => (main.parent?.type === 'COMPONENT_SET' ? main.parent.key : main.key);
@@ -136,6 +176,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     leftovers: [],
     unstyled: [],
     overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
+    reactions: 0,
     errors: [],
   };
   finalizeFrames();
@@ -221,6 +262,7 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
           if (out.lost.length) result.lostTexts.push({ nodeId: out.instance.id, name: group.name, message: out.lost.map((t) => `«${t}»`).join(', ') });
           if (out.unstyled.length) result.unstyled.push({ nodeId: out.instance.id, name: group.name, message: out.unstyled.map((t) => `«${t}»`).join(', ') });
           const left = [...out.placeholders.map((t) => `текст «${t}»`), ...out.iconsMissing.map((i) => `иконка ${i} (нет у нас)`)];
+          if (out.innerReactions) left.push(`переходы прототипа на слоях внутри (${out.innerReactions}) не перенесены`);
           if (left.length) result.leftovers.push({ nodeId: out.instance.id, name: group.name, message: left.join(', ') });
         } catch (e) {
           result.errors.push({ nodeId, name: group.name, message: e instanceof Error ? e.message : String(e) });
@@ -274,6 +316,10 @@ export async function applySwaps(groups: readonly ApplyGroup[], ctx: ApplyContex
     if (!changed) break;
   }
 
+  ctx.progress('Переходы прототипа…');
+  const frames = journal.filter((e): e is Extract<JournalEntry, { kind: 'frame' }> => e.kind === 'frame' && replacedFrames.has(e.frame.id));
+  result.reactions = await retargetIncoming(frames);
+
   commitUndo();
   return result;
 }
@@ -293,6 +339,7 @@ export async function settleOurs(items: readonly { name: string; nodeIds: string
     leftovers: [],
     unstyled: [],
     overrides: { kept: 0, reset: 0, variants: 0, undecided: 0, failed: [] },
+    reactions: 0,
     errors: [],
   };
   finalizeFrames();
@@ -337,7 +384,10 @@ export async function undoSwaps(progress: (text: string) => void): Promise<{ res
     const entry = journal[i];
     if ((journal.length - i) % 20 === 0) progress(`Возвращено ${journal.length - i} из ${journal.length}`);
     try {
-      if (entry.kind === 'props') {
+      if (entry.kind === 'reactions') {
+        if (entry.node.removed) throw new Error('removed');
+        await entry.node.setReactionsAsync(entry.previous);
+      } else if (entry.kind === 'props') {
         if (entry.node.removed) throw new Error('removed');
         await restoreOverrides(entry.node, entry.captured);
       } else if (entry.kind === 'swap') {
