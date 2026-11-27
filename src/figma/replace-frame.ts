@@ -2,10 +2,12 @@
 // Вариант набора — по устройству фрейма (core/structure.ts), экземпляр встаёт на место фрейма с тем же поведением
 // в раскладке, тексты и иконки фрейма переносятся. Сам фрейм не удаляется, а скрывается: «Отменить» его вернёт;
 // окончательно он удаляется при следующем скане, применении или закрытии плагина (`finalizeFrames`) — исходный
-// остаётся на копии страницы «было» (apply.ts, `backupPage`).
+// остаётся на копии страницы «было» (apply.ts, `backupPage`). Переходы прототипа самого фрейма переносятся на
+// экземпляр; переходы, ведущие на фрейм, перенаправляет apply.ts (`retargetIncoming`).
 
 import { matchByName, type Candidate } from '../core/match';
 import { lostTexts, visibleTexts, type ContentNode } from '../core/content';
+import { innerReactionLayers, retargetReactions, writableReactions, type ReactionNode } from '../core/reactions';
 import { mapIcons, mapTexts, pickByStructure, signature, unstyledTexts } from '../core/structure';
 import { snapshot } from './structure';
 import { importTarget, variantSignature } from './swap';
@@ -25,6 +27,8 @@ export interface FrameOutcome {
   unstyled: string[];
   /** Похожесть устройства фрейма и выбранного варианта, 0..1. */
   score: number;
+  /** Слои внутри фрейма с переходами прототипа — на экземпляр их не перенести. */
+  innerReactions: number;
 }
 
 export interface FrameContext {
@@ -91,6 +95,13 @@ export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'ke
   // Упало на полпути (шрифт, импорт иконки) — убираем наш экземпляр: фрейм остаётся как был, без двойника (#276, дефект 2).
   try {
     place(instance, frame);
+    // Переходы самого фрейма — на экземпляр (переход на себя — на себя). Слои внутри фрейма у экземпляра другие:
+    // их переходы не переносим, только считаем.
+    if (frame.reactions.length) {
+      const self = new Map([[frame.id, instance.id]]);
+      await instance.setReactionsAsync(retargetReactions(frame.reactions, self) ?? writableReactions(frame.reactions));
+    }
+    const innerReactions = innerReactionLayers(frame as unknown as ReactionNode);
 
     const instSig = signature(await snapshot(instance));
     const { texts, lost } = mapTexts(frameSig.texts, instSig.texts);
@@ -125,7 +136,7 @@ export async function replaceFrame(frame: FrameNode, target: Pick<Candidate, 'ke
     } catch {
       // без метки: скан всё равно пропускает скрытые фреймы, заменённые в этом запуске (журнал)
     }
-    return { instance, lost, placeholders, iconsMissing, unstyled: unstyledTexts(frameSig.texts, texts), score: pick.score };
+    return { instance, lost, placeholders, iconsMissing, unstyled: unstyledTexts(frameSig.texts, texts), score: pick.score, innerReactions };
   } catch (e) {
     if (!instance.removed) instance.remove();
     throw e;

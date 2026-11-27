@@ -34,6 +34,7 @@ export function Applied({ result: r, undone }: { result: ApplyResult; undone: { 
           {r.overrides.undecided ? `, не решено — ${r.overrides.undecided} (как получилось после замены)` : ''}.
         </p>
       )}
+      {r.reactions > 0 && <p class="muted">Переходы прототипа на заменённые фреймы теперь ведут на наши экземпляры: {r.reactions}.</p>}
       {r.improvements && (
         <p class="muted">
           Доработки компонентов («нужен вариант»): {r.improvements.cards} на странице «{r.improvements.pageName}».
